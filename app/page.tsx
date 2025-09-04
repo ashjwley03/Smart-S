@@ -1,11 +1,119 @@
 "use client"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RotateCcw } from "lucide-react"
+import { Canvas, useFrame } from "@react-three/fiber"
+import { OrbitControls, useGLTF } from "@react-three/drei"
+import * as THREE from "three"
+
+function FootModel({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
+  const meshRef = useRef<THREE.Mesh>(null)
+  const { scene } = useGLTF("/human_foot_base_mesh.glb")
+
+  const footMesh = scene.clone()
+
+  const getPressureColor = (value: number, status: string) => {
+    if (!isConnected || status === "No Data") return 0x888888
+
+    const normalizedValue = Math.min(Math.max(value / 500, 0), 1)
+
+    switch (status) {
+      case "High":
+        const redIntensity = 0.3 + normalizedValue * 0.7
+        return new THREE.Color(redIntensity, 0.1, 0.1)
+      case "Normal":
+        const greenIntensity = 0.2 + normalizedValue * 0.6
+        return new THREE.Color(0.1, greenIntensity, 0.1)
+      case "Low":
+        const blueIntensity = 0.3 + normalizedValue * 0.5
+        return new THREE.Color(0.1, 0.1, blueIntensity)
+      default:
+        return new THREE.Color(0.5, 0.5, 0.5)
+    }
+  }
+
+  useFrame(() => {
+    if (meshRef.current && footMesh) {
+      footMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material) {
+          const material = child.material as THREE.MeshStandardMaterial
+
+          const worldPosition = new THREE.Vector3()
+          child.getWorldPosition(worldPosition)
+
+          const localPosition = child.position
+          let targetColor = new THREE.Color(0.5, 0.5, 0.5)
+
+          if (localPosition.z < -0.3) {
+            targetColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
+          } else if (localPosition.z > 0.4) {
+            targetColor = getPressureColor(pressureData.toe.value, pressureData.toe.status)
+          } else {
+            targetColor = getPressureColor(pressureData.arch.value, pressureData.arch.status)
+          }
+
+          if (isConnected) {
+            const time = Date.now() * 0.003
+            const pulseIntensity =
+              pressureData.heel.status === "High" ||
+              pressureData.arch.status === "High" ||
+              pressureData.toe.status === "High"
+                ? 0.1 + Math.sin(time) * 0.05
+                : 0
+
+            targetColor.multiplyScalar(1 + pulseIntensity)
+
+            material.color.copy(targetColor)
+            material.opacity = 0.9
+            material.transparent = true
+            material.roughness = 0.4
+            material.metalness = 0.1
+          } else {
+            material.color.setHex(0x666666)
+            material.opacity = 0.4
+            material.transparent = true
+            material.roughness = 0.8
+            material.metalness = 0.0
+          }
+        }
+      })
+    }
+  })
+
+  return (
+    <group ref={meshRef}>
+      <primitive object={footMesh} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
+    </group>
+  )
+}
+
+function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
+  return (
+    <div className="w-full h-96 bg-gradient-to-b from-slate-50 to-slate-100 rounded-lg overflow-hidden">
+      <Canvas camera={{ position: [3, 2, 3], fov: 50 }} style={{ width: "100%", height: "100%" }}>
+        <ambientLight intensity={0.6} />
+        <directionalLight position={[10, 10, 5]} intensity={0.8} />
+        <pointLight position={[-10, -10, -5]} intensity={0.3} />
+
+        <Suspense fallback={null}>
+          <FootModel isConnected={isConnected} pressureData={pressureData} />
+        </Suspense>
+
+        <OrbitControls
+          enablePan={false}
+          enableZoom={true}
+          minDistance={2}
+          maxDistance={8}
+          minPolarAngle={0}
+          maxPolarAngle={Math.PI}
+        />
+      </Canvas>
+    </div>
+  )
+}
 
 export default function FootPressureMonitor() {
   const [isConnected, setIsConnected] = useState(false)
@@ -84,7 +192,6 @@ export default function FootPressureMonitor() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-2">
           <Badge variant={isConnected ? "default" : "secondary"}>{isConnected ? "Connected" : "Disconnected"}</Badge>
@@ -94,7 +201,6 @@ export default function FootPressureMonitor() {
         </Button>
       </div>
 
-      {/* Alert Banner */}
       {isConnected && (currentReadings.heel.status === "High" || currentReadings.toe.status === "High") && (
         <Alert className="m-4 border-destructive/50 bg-destructive/10">
           <AlertTriangle className="h-4 w-4 text-destructive" />
@@ -113,7 +219,6 @@ export default function FootPressureMonitor() {
         </Alert>
       )}
 
-      {/* Navigation Tabs */}
       <div className="flex border-b border-border">
         {["Live", "History", "Settings"].map((tab) => (
           <button
@@ -130,9 +235,7 @@ export default function FootPressureMonitor() {
         ))}
       </div>
 
-      {/* Main Content */}
       <div className="p-4 space-y-6">
-        {/* 3D Pressure Map */}
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
@@ -143,131 +246,10 @@ export default function FootPressureMonitor() {
               </div>
             </div>
 
-            {/* Foot Visualization */}
-            <div className="space-y-6">
-              {/* Side View */}
-              <div className="relative">
-                <div className="w-full max-w-sm mx-auto">
-                  <svg viewBox="0 0 320 140" className="w-full h-auto">
-                    <path
-                      d="M40 100 
-                         Q45 85 55 75 
-                         Q70 65 90 60 
-                         Q120 55 150 57 
-                         Q180 58 210 62 
-                         Q240 67 260 75 
-                         Q275 82 280 90 
-                         Q285 95 280 100 
-                         Q270 105 250 108 
-                         Q220 110 190 109 
-                         Q160 108 130 106 
-                         Q100 104 70 102 
-                         Q50 101 40 100 Z"
-                      fill={isConnected ? "url(#sideFootGradient)" : "#e5e7eb"}
-                      stroke="#9ca3af"
-                      strokeWidth="1"
-                    />
-
-                    {/* Toe area definition */}
-                    <path
-                      d="M260 75 Q275 82 280 90 Q285 95 280 100 Q275 102 270 100 Q265 95 260 90 Q258 82 260 75"
-                      fill={isConnected ? (currentReadings.toe.status === "High" ? "#dc2626" : "#3b82f6") : "#f3f4f6"}
-                      opacity="0.8"
-                    />
-
-                    {/* Heel pressure area */}
-                    <ellipse
-                      cx="70"
-                      cy="95"
-                      rx="18"
-                      ry="12"
-                      fill={isConnected ? (currentReadings.heel.status === "High" ? "#dc2626" : "#22c55e") : "#f3f4f6"}
-                      opacity="0.9"
-                    />
-
-                    <defs>
-                      <linearGradient id="sideFootGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#1e40af" />
-                        <stop offset="25%" stopColor="#0891b2" />
-                        <stop offset="50%" stopColor="#059669" />
-                        <stop offset="75%" stopColor="#ca8a04" />
-                        <stop offset="100%" stopColor="#dc2626" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                </div>
-              </div>
-
-              {/* Bottom View */}
-              <div className="relative">
-                <div className="w-full max-w-sm mx-auto">
-                  <svg viewBox="0 0 160 280" className="w-full h-auto">
-                    {/* Main foot body */}
-                    <path
-                      d="M80 40
-                         Q95 35 105 45
-                         Q110 55 108 70
-                         Q106 90 104 110
-                         Q102 140 100 170
-                         Q98 200 95 220
-                         Q92 240 85 250
-                         Q80 260 80 260
-                         Q80 260 75 250
-                         Q68 240 65 220
-                         Q62 200 60 170
-                         Q58 140 56 110
-                         Q54 90 52 70
-                         Q50 55 55 45
-                         Q65 35 80 40 Z"
-                      fill={isConnected ? "url(#bottomFootGradient)" : "#e5e7eb"}
-                      stroke="#9ca3af"
-                      strokeWidth="1"
-                    />
-
-                    {/* Toes */}
-                    <ellipse cx="80" cy="50" rx="12" ry="8" fill={isConnected ? "#1e40af" : "#f3f4f6"} />
-                    <ellipse cx="75" cy="42" rx="6" ry="5" fill={isConnected ? "#1e40af" : "#f3f4f6"} />
-                    <ellipse cx="85" cy="42" rx="6" ry="5" fill={isConnected ? "#1e40af" : "#f3f4f6"} />
-                    <ellipse cx="70" cy="46" rx="4" ry="4" fill={isConnected ? "#1e40af" : "#f3f4f6"} />
-                    <ellipse cx="90" cy="46" rx="4" ry="4" fill={isConnected ? "#1e40af" : "#f3f4f6"} />
-
-                    {/* Ball of foot pressure area */}
-                    <ellipse
-                      cx="80"
-                      cy="120"
-                      rx="20"
-                      ry="15"
-                      fill={isConnected ? (currentReadings.arch.status === "High" ? "#dc2626" : "#22c55e") : "#f3f4f6"}
-                      opacity="0.8"
-                    />
-
-                    {/* Heel pressure area */}
-                    <ellipse
-                      cx="80"
-                      cy="220"
-                      rx="22"
-                      ry="18"
-                      fill={isConnected ? (currentReadings.heel.status === "High" ? "#dc2626" : "#059669") : "#f3f4f6"}
-                      opacity="0.9"
-                    />
-
-                    <defs>
-                      <radialGradient id="bottomFootGradient" cx="50%" cy="60%" r="60%">
-                        <stop offset="0%" stopColor="#1e40af" />
-                        <stop offset="30%" stopColor="#0891b2" />
-                        <stop offset="50%" stopColor="#059669" />
-                        <stop offset="70%" stopColor="#ca8a04" />
-                        <stop offset="100%" stopColor="#dc2626" />
-                      </radialGradient>
-                    </defs>
-                  </svg>
-                </div>
-              </div>
-            </div>
+            <ThreeJSFootVisualization isConnected={isConnected} pressureData={currentReadings} />
           </CardContent>
         </Card>
 
-        {/* Current Readings */}
         <Card>
           <CardContent className="p-6">
             <h2 className="text-lg font-semibold text-foreground mb-4">Current Readings</h2>
