@@ -16,20 +16,20 @@ function FootModel({ isConnected, pressureData }: { isConnected: boolean; pressu
   const footMesh = scene.clone()
 
   const getPressureColor = (value: number, status: string) => {
-    if (!isConnected || status === "No Data") return 0x888888
+    if (!isConnected || status === "No Data") return new THREE.Color(0.4, 0.4, 0.4)
 
     const normalizedValue = Math.min(Math.max(value / 500, 0), 1)
 
     switch (status) {
       case "High":
-        const redIntensity = 0.3 + normalizedValue * 0.7
-        return new THREE.Color(redIntensity, 0.1, 0.1)
+        const redIntensity = 0.5 + normalizedValue * 0.5
+        return new THREE.Color(redIntensity, 0.05, 0.05)
       case "Normal":
-        const greenIntensity = 0.2 + normalizedValue * 0.6
-        return new THREE.Color(0.1, greenIntensity, 0.1)
+        const greenIntensity = 0.3 + normalizedValue * 0.5
+        return new THREE.Color(0.05, greenIntensity, 0.05)
       case "Low":
-        const blueIntensity = 0.3 + normalizedValue * 0.5
-        return new THREE.Color(0.1, 0.1, blueIntensity)
+        const blueIntensity = 0.4 + normalizedValue * 0.4
+        return new THREE.Color(0.05, 0.15, blueIntensity)
       default:
         return new THREE.Color(0.5, 0.5, 0.5)
     }
@@ -44,39 +44,46 @@ function FootModel({ isConnected, pressureData }: { isConnected: boolean; pressu
           const worldPosition = new THREE.Vector3()
           child.getWorldPosition(worldPosition)
 
-          const localPosition = child.position
-          let targetColor = new THREE.Color(0.5, 0.5, 0.5)
+          let targetColor = new THREE.Color(0.3, 0.3, 0.3)
 
-          if (localPosition.z < -0.3) {
+          if (worldPosition.z < -0.2) {
             targetColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
-          } else if (localPosition.z > 0.4) {
-            targetColor = getPressureColor(pressureData.toe.value, pressureData.toe.status)
+          } else if (worldPosition.x > 0.2) {
+            targetColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
+          } else if (worldPosition.x < -0.2) {
+            targetColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
           } else {
-            targetColor = getPressureColor(pressureData.arch.value, pressureData.arch.status)
+            const heelColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
+            const leftColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
+            const rightColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
+
+            targetColor = new THREE.Color().addColors(heelColor, leftColor).add(rightColor).multiplyScalar(0.33)
           }
 
           if (isConnected) {
             const time = Date.now() * 0.003
             const pulseIntensity =
               pressureData.heel.status === "High" ||
-              pressureData.arch.status === "High" ||
-              pressureData.toe.status === "High"
-                ? 0.1 + Math.sin(time) * 0.05
+              pressureData.leftAnkle.status === "High" ||
+              pressureData.rightAnkle.status === "High"
+                ? 0.15 + Math.sin(time * 2) * 0.1
                 : 0
 
             targetColor.multiplyScalar(1 + pulseIntensity)
 
             material.color.copy(targetColor)
-            material.opacity = 0.9
+            material.opacity = 0.95
             material.transparent = true
-            material.roughness = 0.4
-            material.metalness = 0.1
+            material.roughness = 0.3
+            material.metalness = 0.15
+            material.emissive.copy(targetColor).multiplyScalar(0.1)
           } else {
-            material.color.setHex(0x666666)
-            material.opacity = 0.4
+            material.color.setHex(0x555555)
+            material.opacity = 0.3
             material.transparent = true
-            material.roughness = 0.8
+            material.roughness = 0.9
             material.metalness = 0.0
+            material.emissive.setHex(0x000000)
           }
         }
       })
@@ -120,24 +127,24 @@ export default function FootPressureMonitor() {
   const [activeTab, setActiveTab] = useState("Live")
   const [currentReadings, setCurrentReadings] = useState({
     heel: { value: 0, status: "No Data" },
-    arch: { value: 0, status: "No Data" },
-    toe: { value: 0, status: "No Data" },
+    leftAnkle: { value: 0, status: "No Data" },
+    rightAnkle: { value: 0, status: "No Data" },
   })
 
   useEffect(() => {
     if (!isConnected) {
       setCurrentReadings({
         heel: { value: 0, status: "No Data" },
-        arch: { value: 0, status: "No Data" },
-        toe: { value: 0, status: "No Data" },
+        leftAnkle: { value: 0, status: "No Data" },
+        rightAnkle: { value: 0, status: "No Data" },
       })
       return
     }
 
     setCurrentReadings({
       heel: { value: 201.5, status: "High" },
-      arch: { value: 367.4, status: "Normal" },
-      toe: { value: 407.2, status: "High" },
+      leftAnkle: { value: 367.4, status: "Normal" },
+      rightAnkle: { value: 407.2, status: "High" },
     })
 
     const interval = setInterval(() => {
@@ -146,13 +153,13 @@ export default function FootPressureMonitor() {
           value: Math.round((prev.heel.value + (Math.random() - 0.5) * 10) * 10) / 10,
           status: prev.heel.value > 300 ? "High" : prev.heel.value > 200 ? "Normal" : "Low",
         },
-        arch: {
-          value: Math.round((prev.arch.value + (Math.random() - 0.5) * 15) * 10) / 10,
-          status: prev.arch.value > 400 ? "High" : prev.arch.value > 250 ? "Normal" : "Low",
+        leftAnkle: {
+          value: Math.round((prev.leftAnkle.value + (Math.random() - 0.5) * 15) * 10) / 10,
+          status: prev.leftAnkle.value > 400 ? "High" : prev.leftAnkle.value > 250 ? "Normal" : "Low",
         },
-        toe: {
-          value: Math.round((prev.toe.value + (Math.random() - 0.5) * 12) * 10) / 10,
-          status: prev.toe.value > 350 ? "High" : prev.toe.value > 200 ? "Normal" : "Low",
+        rightAnkle: {
+          value: Math.round((prev.rightAnkle.value + (Math.random() - 0.5) * 12) * 10) / 10,
+          status: prev.rightAnkle.value > 350 ? "High" : prev.rightAnkle.value > 200 ? "Normal" : "Low",
         },
       }))
     }, 2000)
@@ -201,12 +208,12 @@ export default function FootPressureMonitor() {
         </Button>
       </div>
 
-      {isConnected && (currentReadings.heel.status === "High" || currentReadings.toe.status === "High") && (
+      {isConnected && (currentReadings.heel.status === "High" || currentReadings.rightAnkle.status === "High") && (
         <Alert className="m-4 border-destructive/50 bg-destructive/10">
           <AlertTriangle className="h-4 w-4 text-destructive" />
           <AlertDescription className="text-destructive">
             <div className="font-medium">
-              High pressure detected at {currentReadings.heel.status === "High" ? "heel" : "toe"}
+              High pressure detected at {currentReadings.heel.status === "High" ? "heel" : "right ankle"}
             </div>
             <div className="text-sm mt-1">
               <strong>Action:</strong> Reposition foot to distribute pressure to lateral ankle or elevate the entire
@@ -264,21 +271,21 @@ export default function FootPressureMonitor() {
                 </Badge>
               </div>
               <div className="text-center">
-                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.arch.status)}`}>
-                  {currentReadings.arch.status === "No Data" ? "—" : currentReadings.arch.value}
+                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.leftAnkle.status)}`}>
+                  {currentReadings.leftAnkle.status === "No Data" ? "—" : currentReadings.leftAnkle.value}
                 </div>
-                <div className="text-sm text-muted-foreground mb-2">Arch (kPa)</div>
-                <Badge className={getStatusColor(currentReadings.arch.status)} variant="secondary">
-                  {currentReadings.arch.status}
+                <div className="text-sm text-muted-foreground mb-2">Left Ankle (kPa)</div>
+                <Badge className={getStatusColor(currentReadings.leftAnkle.status)} variant="secondary">
+                  {currentReadings.leftAnkle.status}
                 </Badge>
               </div>
               <div className="text-center">
-                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.toe.status)}`}>
-                  {currentReadings.toe.status === "No Data" ? "—" : currentReadings.toe.value}
+                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.rightAnkle.status)}`}>
+                  {currentReadings.rightAnkle.status === "No Data" ? "—" : currentReadings.rightAnkle.value}
                 </div>
-                <div className="text-sm text-muted-foreground mb-2">Toe (kPa)</div>
-                <Badge className={getStatusColor(currentReadings.toe.status)} variant="secondary">
-                  {currentReadings.toe.status}
+                <div className="text-sm text-muted-foreground mb-2">Right Ankle (kPa)</div>
+                <Badge className={getStatusColor(currentReadings.rightAnkle.status)} variant="secondary">
+                  {currentReadings.rightAnkle.status}
                 </Badge>
               </div>
             </div>
