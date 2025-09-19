@@ -5,170 +5,169 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RotateCcw } from "lucide-react"
-import { Canvas, useFrame } from "@react-three/fiber"
-import { OrbitControls, useGLTF } from "@react-three/drei"
-import * as THREE from "three"
+import dynamic from "next/dynamic"
 
-function FootModel({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const { scene } = useGLTF("/human_foot_base_mesh.glb")
+const Canvas = dynamic(() => import("@react-three/fiber").then((mod) => ({ default: mod.Canvas })), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-96 bg-slate-100 rounded-lg flex items-center justify-center">Loading 3D Model...</div>
+  ),
+})
 
-  const heelMaterialRef = useRef<THREE.MeshStandardMaterial>()
-  const leftAnkleMaterialRef = useRef<THREE.MeshStandardMaterial>()
-  const rightAnkleMaterialRef = useRef<THREE.MeshStandardMaterial>()
-  const baseMaterialRef = useRef<THREE.MeshStandardMaterial>()
+const OrbitControls = dynamic(() => import("@react-three/drei").then((mod) => ({ default: mod.OrbitControls })), {
+  ssr: false,
+})
 
-  const footMesh = scene.clone()
+const FootModelInner = dynamic(
+  () =>
+    Promise.all([import("@react-three/drei"), import("@react-three/fiber"), import("three")]).then(
+      ([dreiMod, fiberMod, threeMod]) => {
+        const { useGLTF } = dreiMod
+        const { useFrame } = fiberMod
+        const THREE = threeMod
 
-  const getPressureColor = (value: number, status: string) => {
-    if (!isConnected || status === "No Data") return new THREE.Color(0.4, 0.4, 0.4)
+        function FootModelComponent({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
+          const meshRef = useRef<any>(null)
+          const { scene } = useGLTF("/human_foot_base_mesh.glb")
 
-    const normalizedValue = Math.min(Math.max(value / 500, 0), 1)
+          const getPressureColor = (value: number, status: string) => {
+            if (!isConnected || status === "No Data") return new THREE.Color(0.4, 0.4, 0.4)
 
-    switch (status) {
-      case "High":
-        const redIntensity = 0.7 + normalizedValue * 0.3
-        return new THREE.Color(redIntensity, 0.1, 0.1)
-      case "Normal":
-        const greenIntensity = 0.4 + normalizedValue * 0.4
-        return new THREE.Color(0.1, greenIntensity, 0.1)
-      case "Low":
-        const blueIntensity = 0.5 + normalizedValue * 0.3
-        return new THREE.Color(0.1, 0.2, blueIntensity)
-      default:
-        return new THREE.Color(0.5, 0.5, 0.5)
-    }
-  }
+            const normalizedValue = Math.min(Math.max(value / 500, 0), 1)
 
-  useEffect(() => {
-    if (footMesh) {
-      footMesh.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          // Create separate materials for different regions
-          const originalMaterial = child.material as THREE.MeshStandardMaterial
+            switch (status) {
+              case "High":
+                const redIntensity = 0.7 + normalizedValue * 0.3
+                return new THREE.Color(redIntensity, 0.1, 0.1)
+              case "Normal":
+                const greenIntensity = 0.4 + normalizedValue * 0.4
+                return new THREE.Color(0.1, greenIntensity, 0.1)
+              case "Low":
+                const blueIntensity = 0.5 + normalizedValue * 0.3
+                return new THREE.Color(0.1, 0.2, blueIntensity)
+              default:
+                return new THREE.Color(0.5, 0.5, 0.5)
+            }
+          }
 
-          // Clone materials for each region
-          heelMaterialRef.current = originalMaterial.clone()
-          leftAnkleMaterialRef.current = originalMaterial.clone()
-          rightAnkleMaterialRef.current = originalMaterial.clone()
-          baseMaterialRef.current = originalMaterial.clone()
+          useFrame(() => {
+            if (meshRef.current && scene) {
+              const time = Date.now() * 0.003
+              const footMesh = scene.clone()
 
-          // Set base properties
-          const materials = [
-            heelMaterialRef.current,
-            leftAnkleMaterialRef.current,
-            rightAnkleMaterialRef.current,
-            baseMaterialRef.current,
-          ]
-          materials.forEach((material) => {
-            material.transparent = true
-            material.roughness = 0.3
-            material.metalness = 0.15
+              const heelColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
+              const leftAnkleColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
+              const rightAnkleColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
+
+              const heelPulse = pressureData.heel.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
+              const leftPulse = pressureData.leftAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
+              const rightPulse = pressureData.rightAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
+
+              footMesh.traverse((child: any) => {
+                if (child instanceof THREE.Mesh && child.geometry) {
+                  const geometry = child.geometry
+                  const position = geometry.attributes.position
+
+                  if (!geometry.attributes.color) {
+                    const colors = new Float32Array(position.count * 3)
+                    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3))
+                  }
+
+                  const colors = geometry.attributes.color
+                  const vertex = new THREE.Vector3()
+
+                  for (let i = 0; i < position.count; i++) {
+                    vertex.fromBufferAttribute(position, i)
+                    child.localToWorld(vertex)
+
+                    let color = new THREE.Color(0.3, 0.3, 0.3)
+
+                    if (vertex.z < -0.15) {
+                      color = heelColor.clone().multiplyScalar(1 + heelPulse)
+                    } else if (vertex.x > 0.15 && vertex.z > -0.1) {
+                      color = rightAnkleColor.clone().multiplyScalar(1 + rightPulse)
+                    } else if (vertex.x < -0.15 && vertex.z > -0.1) {
+                      color = leftAnkleColor.clone().multiplyScalar(1 + leftPulse)
+                    } else {
+                      const heelInfluence = Math.max(0, 1 - (vertex.z + 0.15) / 0.3)
+                      const rightInfluence =
+                        Math.max(0, 1 - Math.abs(vertex.x - 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
+                      const leftInfluence =
+                        Math.max(0, 1 - Math.abs(vertex.x + 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
+
+                      const totalInfluence = heelInfluence + rightInfluence + leftInfluence
+
+                      if (totalInfluence > 0) {
+                        color = new THREE.Color()
+                          .addScaledVector(
+                            heelColor.clone().multiplyScalar(1 + heelPulse),
+                            heelInfluence / totalInfluence,
+                          )
+                          .addScaledVector(
+                            rightAnkleColor.clone().multiplyScalar(1 + rightPulse),
+                            rightInfluence / totalInfluence,
+                          )
+                          .addScaledVector(
+                            leftAnkleColor.clone().multiplyScalar(1 + leftPulse),
+                            leftInfluence / totalInfluence,
+                          )
+                      }
+                    }
+
+                    if (!isConnected) {
+                      color.setHex(0x555555)
+                    }
+
+                    colors.setXYZ(i, color.r, color.g, color.b)
+                  }
+
+                  colors.needsUpdate = true
+
+                  const material = child.material
+                  if (isConnected) {
+                    material.vertexColors = true
+                    material.opacity = 0.95
+                    material.emissive.setRGB(0.05, 0.05, 0.05)
+                  } else {
+                    material.vertexColors = true
+                    material.opacity = 0.4
+                    material.emissive.setRGB(0, 0, 0)
+                  }
+                }
+              })
+            }
           })
+
+          return (
+            <group ref={meshRef}>
+              <primitive object={scene.clone()} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
+            </group>
+          )
         }
-      })
-    }
-  }, [footMesh])
 
-  useFrame(() => {
-    if (
-      meshRef.current &&
-      footMesh &&
-      heelMaterialRef.current &&
-      leftAnkleMaterialRef.current &&
-      rightAnkleMaterialRef.current
-    ) {
-      const time = Date.now() * 0.003
-
-      const heelColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
-      const leftAnkleColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
-      const rightAnkleColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
-
-      const heelPulse = pressureData.heel.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
-      const leftPulse = pressureData.leftAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
-      const rightPulse = pressureData.rightAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
-
-      footMesh.traverse((child) => {
-        if (child instanceof THREE.Mesh && child.geometry) {
-          const geometry = child.geometry
-          const position = geometry.attributes.position
-
-          if (!geometry.attributes.color) {
-            const colors = new Float32Array(position.count * 3)
-            geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3))
-          }
-
-          const colors = geometry.attributes.color
-          const vertex = new THREE.Vector3()
-
-          for (let i = 0; i < position.count; i++) {
-            vertex.fromBufferAttribute(position, i)
-            child.localToWorld(vertex)
-
-            let color = new THREE.Color(0.3, 0.3, 0.3)
-
-            if (vertex.z < -0.15) {
-              // Heel region (back of foot)
-              color = heelColor.clone().multiplyScalar(1 + heelPulse)
-            } else if (vertex.x > 0.15 && vertex.z > -0.1) {
-              // Right ankle region (right side, front)
-              color = rightAnkleColor.clone().multiplyScalar(1 + rightPulse)
-            } else if (vertex.x < -0.15 && vertex.z > -0.1) {
-              // Left ankle region (left side, front)
-              color = leftAnkleColor.clone().multiplyScalar(1 + leftPulse)
-            } else {
-              // Transition zones - blend colors
-              const heelInfluence = Math.max(0, 1 - (vertex.z + 0.15) / 0.3)
-              const rightInfluence =
-                Math.max(0, 1 - Math.abs(vertex.x - 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
-              const leftInfluence =
-                Math.max(0, 1 - Math.abs(vertex.x + 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
-
-              const totalInfluence = heelInfluence + rightInfluence + leftInfluence
-
-              if (totalInfluence > 0) {
-                color = new THREE.Color()
-                  .addScaledVector(heelColor.clone().multiplyScalar(1 + heelPulse), heelInfluence / totalInfluence)
-                  .addScaledVector(
-                    rightAnkleColor.clone().multiplyScalar(1 + rightPulse),
-                    rightInfluence / totalInfluence,
-                  )
-                  .addScaledVector(leftAnkleColor.clone().multiplyScalar(1 + leftPulse), leftInfluence / totalInfluence)
-              }
-            }
-
-            if (!isConnected) {
-              color.setHex(0x555555)
-            }
-
-            colors.setXYZ(i, color.r, color.g, color.b)
-          }
-
-          colors.needsUpdate = true
-
-          const material = child.material as THREE.MeshStandardMaterial
-          if (isConnected) {
-            material.vertexColors = true
-            material.opacity = 0.95
-            material.emissive.setRGB(0.05, 0.05, 0.05)
-          } else {
-            material.vertexColors = true
-            material.opacity = 0.4
-            material.emissive.setRGB(0, 0, 0)
-          }
-        }
-      })
-    }
-  })
-
-  return (
-    <group ref={meshRef}>
-      <primitive object={footMesh} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
-    </group>
-  )
-}
+        return { default: FootModelComponent }
+      },
+    ),
+  {
+    ssr: false,
+  },
+)
 
 function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
+  const [isClient, setIsClient] = useState(false)
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  if (!isClient) {
+    return (
+      <div className="w-full h-96 bg-gradient-to-b from-slate-50 to-slate-100 rounded-lg flex items-center justify-center">
+        <div className="text-muted-foreground">Loading 3D Model...</div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full h-96 bg-gradient-to-b from-slate-50 to-slate-100 rounded-lg overflow-hidden">
       <Canvas camera={{ position: [3, 2, 3], fov: 50 }} style={{ width: "100%", height: "100%" }}>
@@ -177,7 +176,7 @@ function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: 
         <pointLight position={[-10, -10, -5]} intensity={0.3} />
 
         <Suspense fallback={null}>
-          <FootModel isConnected={isConnected} pressureData={pressureData} />
+          <FootModelInner isConnected={isConnected} pressureData={pressureData} />
         </Suspense>
 
         <OrbitControls
