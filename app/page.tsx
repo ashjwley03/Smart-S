@@ -13,6 +13,11 @@ function FootModel({ isConnected, pressureData }: { isConnected: boolean; pressu
   const meshRef = useRef<THREE.Mesh>(null)
   const { scene } = useGLTF("/human_foot_base_mesh.glb")
 
+  const heelMaterialRef = useRef<THREE.MeshStandardMaterial>()
+  const leftAnkleMaterialRef = useRef<THREE.MeshStandardMaterial>()
+  const rightAnkleMaterialRef = useRef<THREE.MeshStandardMaterial>()
+  const baseMaterialRef = useRef<THREE.MeshStandardMaterial>()
+
   const footMesh = scene.clone()
 
   const getPressureColor = (value: number, status: string) => {
@@ -22,68 +27,134 @@ function FootModel({ isConnected, pressureData }: { isConnected: boolean; pressu
 
     switch (status) {
       case "High":
-        const redIntensity = 0.5 + normalizedValue * 0.5
-        return new THREE.Color(redIntensity, 0.05, 0.05)
+        const redIntensity = 0.7 + normalizedValue * 0.3
+        return new THREE.Color(redIntensity, 0.1, 0.1)
       case "Normal":
-        const greenIntensity = 0.3 + normalizedValue * 0.5
-        return new THREE.Color(0.05, greenIntensity, 0.05)
+        const greenIntensity = 0.4 + normalizedValue * 0.4
+        return new THREE.Color(0.1, greenIntensity, 0.1)
       case "Low":
-        const blueIntensity = 0.4 + normalizedValue * 0.4
-        return new THREE.Color(0.05, 0.15, blueIntensity)
+        const blueIntensity = 0.5 + normalizedValue * 0.3
+        return new THREE.Color(0.1, 0.2, blueIntensity)
       default:
         return new THREE.Color(0.5, 0.5, 0.5)
     }
   }
 
-  useFrame(() => {
-    if (meshRef.current && footMesh) {
+  useEffect(() => {
+    if (footMesh) {
       footMesh.traverse((child) => {
-        if (child instanceof THREE.Mesh && child.material) {
-          const material = child.material as THREE.MeshStandardMaterial
+        if (child instanceof THREE.Mesh) {
+          // Create separate materials for different regions
+          const originalMaterial = child.material as THREE.MeshStandardMaterial
 
-          const worldPosition = new THREE.Vector3()
-          child.getWorldPosition(worldPosition)
+          // Clone materials for each region
+          heelMaterialRef.current = originalMaterial.clone()
+          leftAnkleMaterialRef.current = originalMaterial.clone()
+          rightAnkleMaterialRef.current = originalMaterial.clone()
+          baseMaterialRef.current = originalMaterial.clone()
 
-          let targetColor = new THREE.Color(0.3, 0.3, 0.3)
-
-          if (worldPosition.z < -0.2) {
-            targetColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
-          } else if (worldPosition.x > 0.2) {
-            targetColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
-          } else if (worldPosition.x < -0.2) {
-            targetColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
-          } else {
-            const heelColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
-            const leftColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
-            const rightColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
-
-            targetColor = new THREE.Color().addColors(heelColor, leftColor).add(rightColor).multiplyScalar(0.33)
-          }
-
-          if (isConnected) {
-            const time = Date.now() * 0.003
-            const pulseIntensity =
-              pressureData.heel.status === "High" ||
-              pressureData.leftAnkle.status === "High" ||
-              pressureData.rightAnkle.status === "High"
-                ? 0.15 + Math.sin(time * 2) * 0.1
-                : 0
-
-            targetColor.multiplyScalar(1 + pulseIntensity)
-
-            material.color.copy(targetColor)
-            material.opacity = 0.95
+          // Set base properties
+          const materials = [
+            heelMaterialRef.current,
+            leftAnkleMaterialRef.current,
+            rightAnkleMaterialRef.current,
+            baseMaterialRef.current,
+          ]
+          materials.forEach((material) => {
             material.transparent = true
             material.roughness = 0.3
             material.metalness = 0.15
-            material.emissive.copy(targetColor).multiplyScalar(0.1)
+          })
+        }
+      })
+    }
+  }, [footMesh])
+
+  useFrame(() => {
+    if (
+      meshRef.current &&
+      footMesh &&
+      heelMaterialRef.current &&
+      leftAnkleMaterialRef.current &&
+      rightAnkleMaterialRef.current
+    ) {
+      const time = Date.now() * 0.003
+
+      const heelColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
+      const leftAnkleColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
+      const rightAnkleColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
+
+      const heelPulse = pressureData.heel.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
+      const leftPulse = pressureData.leftAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
+      const rightPulse = pressureData.rightAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
+
+      footMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.geometry) {
+          const geometry = child.geometry
+          const position = geometry.attributes.position
+
+          if (!geometry.attributes.color) {
+            const colors = new Float32Array(position.count * 3)
+            geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3))
+          }
+
+          const colors = geometry.attributes.color
+          const vertex = new THREE.Vector3()
+
+          for (let i = 0; i < position.count; i++) {
+            vertex.fromBufferAttribute(position, i)
+            child.localToWorld(vertex)
+
+            let color = new THREE.Color(0.3, 0.3, 0.3)
+
+            if (vertex.z < -0.15) {
+              // Heel region (back of foot)
+              color = heelColor.clone().multiplyScalar(1 + heelPulse)
+            } else if (vertex.x > 0.15 && vertex.z > -0.1) {
+              // Right ankle region (right side, front)
+              color = rightAnkleColor.clone().multiplyScalar(1 + rightPulse)
+            } else if (vertex.x < -0.15 && vertex.z > -0.1) {
+              // Left ankle region (left side, front)
+              color = leftAnkleColor.clone().multiplyScalar(1 + leftPulse)
+            } else {
+              // Transition zones - blend colors
+              const heelInfluence = Math.max(0, 1 - (vertex.z + 0.15) / 0.3)
+              const rightInfluence =
+                Math.max(0, 1 - Math.abs(vertex.x - 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
+              const leftInfluence =
+                Math.max(0, 1 - Math.abs(vertex.x + 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
+
+              const totalInfluence = heelInfluence + rightInfluence + leftInfluence
+
+              if (totalInfluence > 0) {
+                color = new THREE.Color()
+                  .addScaledVector(heelColor.clone().multiplyScalar(1 + heelPulse), heelInfluence / totalInfluence)
+                  .addScaledVector(
+                    rightAnkleColor.clone().multiplyScalar(1 + rightPulse),
+                    rightInfluence / totalInfluence,
+                  )
+                  .addScaledVector(leftAnkleColor.clone().multiplyScalar(1 + leftPulse), leftInfluence / totalInfluence)
+              }
+            }
+
+            if (!isConnected) {
+              color.setHex(0x555555)
+            }
+
+            colors.setXYZ(i, color.r, color.g, color.b)
+          }
+
+          colors.needsUpdate = true
+
+          const material = child.material as THREE.MeshStandardMaterial
+          if (isConnected) {
+            material.vertexColors = true
+            material.opacity = 0.95
+            material.emissive.setRGB(0.05, 0.05, 0.05)
           } else {
-            material.color.setHex(0x555555)
-            material.opacity = 0.3
-            material.transparent = true
-            material.roughness = 0.9
-            material.metalness = 0.0
-            material.emissive.setHex(0x000000)
+            material.vertexColors = true
+            material.opacity = 0.4
+            material.emissive.setRGB(0, 0, 0)
           }
         }
       })
@@ -215,12 +286,26 @@ export default function FootPressureMonitor() {
             <div className="font-medium">
               High pressure detected at {currentReadings.heel.status === "High" ? "heel" : "right ankle"}
             </div>
-            <div className="text-sm mt-1">
-              <strong>Action:</strong> Reposition foot to distribute pressure to lateral ankle or elevate the entire
-              foot
-            </div>
-            <div className="text-sm">
-              <strong>Duration:</strong> 2-3 hours
+            <div className="text-sm mt-2 space-y-2">
+              <div>
+                <strong>Immediate action:</strong> Redistribute weight by shifting to the opposite foot or adjusting
+                your position. If seated, elevate the affected foot above heart level using pillows or a footrest.
+              </div>
+              <div>
+                <strong>Positioning:</strong> For heel pressure, lean forward slightly and transfer weight to the balls
+                of your feet. For ankle pressure, rotate your ankle gently in circular motions and flex your toes upward
+                to improve circulation.
+              </div>
+              <div>
+                <strong>Relief techniques:</strong> Apply gentle massage to the affected area using circular motions.
+                Remove tight footwear if possible and wiggle your toes to promote blood flow. Consider using a
+                pressure-relieving cushion or orthotic insert.
+              </div>
+              <div>
+                <strong>Duration:</strong> Maintain pressure relief for 15-30 minutes initially. If pressure readings
+                remain high after repositioning, consult a healthcare professional. Monitor for numbness, tingling, or
+                color changes in the foot.
+              </div>
             </div>
           </AlertDescription>
         </Alert>
