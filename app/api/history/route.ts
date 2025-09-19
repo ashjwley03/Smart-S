@@ -1,0 +1,206 @@
+import { type NextRequest, NextResponse } from "next/server"
+
+type Region = "heel" | "leftAnkle" | "rightAnkle"
+
+type PressureSample = {
+  ts: string
+  heel: number
+  leftAnkle: number
+  rightAnkle: number
+}
+
+type HistoryQuery = {
+  patientId: string
+  period: "3d" | "7d" | "30d"
+  interval?: "1m" | "5m" | "1h"
+}
+
+type PressureStats = {
+  period: HistoryQuery["period"]
+  sampleCount: number
+  avg: Record<Region, number>
+  max: Record<Region, { value: number; ts: string }>
+  timeInHighPct: Record<Region, number>
+  highEvents: Array<{ region: Region; start: string; end: string; peak: number; samples: number }>
+}
+
+type HistoryResponse = {
+  data: PressureSample[]
+  stats: PressureStats
+  meta: { period: HistoryQuery["period"]; interval: Required<HistoryQuery>["interval"] }
+}
+
+// Thresholds
+const heelHigh = 300
+const ankleHigh = 350
+
+// Seeded random number generator for deterministic data
+function mulberry32(a: number) {
+  return () => {
+    let t = (a += 0x6d2b79f5)
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function hashString(str: string): number {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = (hash << 5) - hash + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return Math.abs(hash)
+}
+
+function generateMockData(period: HistoryQuery["period"], interval: string): PressureSample[] {
+  const now = new Date()
+  const periodMs =
+    period === "3d" ? 3 * 24 * 60 * 60 * 1000 : period === "7d" ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000
+
+  const intervalMs = interval === "1m" ? 60 * 1000 : interval === "5m" ? 5 * 60 * 1000 : 60 * 60 * 1000
+
+  const samples: PressureSample[] = []
+  const seed = hashString(`${period}-${interval}`)
+  const rng = mulberry32(seed)
+
+  for (let t = now.getTime() - periodMs; t <= now.getTime(); t += intervalMs) {
+    const timestamp = new Date(t)
+    const hour = timestamp.getHours()
+
+    // Base pressure with circadian variation
+    const timeOfDayFactor = 0.8 + 0.4 * Math.sin(((hour - 6) * Math.PI) / 12)
+
+    // Generate baseline pressures with regional variation
+    const heelBase = 180 + 60 * timeOfDayFactor + 20 * (rng() - 0.5)
+    const leftAnkleBase = 200 + 80 * timeOfDayFactor + 25 * (rng() - 0.5)
+    const rightAnkleBase = 190 + 75 * timeOfDayFactor + 25 * (rng() - 0.5)
+
+    // Add occasional spikes (2-6 times per day)
+    const spikeChance = 0.002 // ~0.2% chance per sample
+    let heel = heelBase
+    let leftAnkle = leftAnkleBase
+    let rightAnkle = rightAnkleBase
+
+    if (rng() < spikeChance) {
+      const spikeRegion = Math.floor(rng() * 3)
+      const spikeIntensity = 1.5 + 0.8 * rng() // 1.5x to 2.3x multiplier
+
+      if (spikeRegion === 0) heel *= spikeIntensity
+      else if (spikeRegion === 1) leftAnkle *= spikeIntensity
+      else rightAnkle *= spikeIntensity
+    }
+
+    samples.push({
+      ts: timestamp.toISOString(),
+      heel: Math.round(Math.max(0, heel) * 10) / 10,
+      leftAnkle: Math.round(Math.max(0, leftAnkle) * 10) / 10,
+      rightAnkle: Math.round(Math.max(0, rightAnkle) * 10) / 10,
+    })
+  }
+
+  return samples
+}
+
+function computeStats(data: PressureSample[], period: HistoryQuery["period"]): PressureStats {
+  const regions: Region[] = ["heel", "leftAnkle", "rightAnkle"]
+  const thresholds = { heel: heelHigh, leftAnkle: ankleHigh, rightAnkle: ankleHigh }
+
+  const stats: PressureStats = {
+    period,
+    sampleCount: data.length,
+    avg: {} as Record<Region, number>,
+    max: {} as Record<Region, { value: number; ts: string }>,
+    timeInHighPct: {} as Record<Region, number>,
+    highEvents: [],
+  }
+
+  // Calculate averages and maximums
+  regions.forEach((region) => {
+    const values = data.map((sample) => sample[region])
+    stats.avg[region] = Math.round((values.reduce((sum, val) => sum + val, 0) / values.length) * 10) / 10
+
+    const maxValue = Math.max(...values)
+    const maxSample = data.find((sample) => sample[region] === maxValue)!
+    stats.max[region] = { value: maxValue, ts: maxSample.ts }
+
+    const highCount = values.filter((val) => val > thresholds[region]).length
+    stats.timeInHighPct[region] = Math.round((highCount / values.length) * 100 * 10) / 10
+  })
+
+  // Find high events (contiguous periods above threshold)
+  regions.forEach((region) => {
+    let inEvent = false
+    let eventStart = ""
+    let eventPeak = 0
+    let eventSamples = 0
+
+    data.forEach((sample, index) => {
+      const isHigh = sample[region] > thresholds[region]
+
+      if (isHigh && !inEvent) {
+        // Start new event
+        inEvent = true
+        eventStart = sample.ts
+        eventPeak = sample[region]
+        eventSamples = 1
+      } else if (isHigh && inEvent) {
+        // Continue event
+        eventPeak = Math.max(eventPeak, sample[region])
+        eventSamples++
+      } else if (!isHigh && inEvent) {
+        // End event
+        inEvent = false
+        stats.highEvents.push({
+          region,
+          start: eventStart,
+          end: data[index - 1].ts,
+          peak: eventPeak,
+          samples: eventSamples,
+        })
+      }
+    })
+
+    // Handle event that continues to the end
+    if (inEvent) {
+      stats.highEvents.push({
+        region,
+        start: eventStart,
+        end: data[data.length - 1].ts,
+        peak: eventPeak,
+        samples: eventSamples,
+      })
+    }
+  })
+
+  return stats
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const period = (searchParams.get("period") || "3d") as HistoryQuery["period"]
+    const requestedInterval = searchParams.get("interval") as HistoryQuery["interval"]
+    const patientId = searchParams.get("patientId") || "demo"
+
+    // Set default intervals based on period
+    const defaultInterval = period === "3d" ? "5m" : period === "7d" ? "5m" : "1h"
+    const interval = requestedInterval || defaultInterval
+
+    // Generate mock data
+    const data = generateMockData(period, interval)
+    const stats = computeStats(data, period)
+
+    const response: HistoryResponse = {
+      data,
+      stats,
+      meta: { period, interval },
+    }
+
+    return NextResponse.json(response)
+  } catch (error) {
+    console.error("History API error:", error)
+    return NextResponse.json({ error: "Failed to fetch history data" }, { status: 500 })
+  }
+}

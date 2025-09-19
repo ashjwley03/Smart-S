@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RotateCcw } from "lucide-react"
 import dynamic from "next/dynamic"
+import Link from "next/link"
 
 const Canvas = dynamic(() => import("@react-three/fiber").then((mod) => ({ default: mod.Canvas })), {
   ssr: false,
@@ -26,121 +27,233 @@ const FootModelInner = dynamic(
         const { useFrame } = fiberMod
         const THREE = threeMod
 
+        // ---- Tunables ----
+        // Region thresholds in normalized [0..1] "length" / "lateral" axes
+        const HEEL_END = 0.18 // back 18% of length is heel
+        const ANKLE_START = 0.35 // ankle begins after 35% of length
+        const LATERAL_GAP = 0.12 // +/- 12% from center for left/right
+        const SWAP_LR = false // set true if your GLB's lateral sign is flipped
+
+        // Quick debug: "none" | "gradient" | "forceRed"
+        const DEBUG: "none" | "gradient" | "forceRed" = "none"
+
         function FootModelComponent({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
-          const meshRef = useRef<any>(null)
+          const groupRef = useRef<THREE.Group>(null)
           const { scene } = useGLTF("/human_foot_base_mesh.glb")
 
-          const getPressureColor = (value: number, status: string) => {
-            if (!isConnected || status === "No Data") return new THREE.Color(0.4, 0.4, 0.4)
+          type MeshEntry = {
+            mesh: THREE.Mesh
+            colors: THREE.BufferAttribute
+            positions: THREE.BufferAttribute
+            min: THREE.Vector3
+            size: THREE.Vector3
+            // axis mapping (indices 0=x,1=y,2=z)
+            lenIdx: 0 | 1 | 2
+            latIdx: 0 | 1 | 2
+          }
 
-            const normalizedValue = Math.min(Math.max(value / 500, 0), 1)
+          const cacheRef = useRef<MeshEntry[]>([])
+          const lastPD = useRef<string>("")
+          const lastConn = useRef<boolean>(false)
 
-            switch (status) {
-              case "High":
-                const redIntensity = 0.7 + normalizedValue * 0.3
-                return new THREE.Color(redIntensity, 0.1, 0.1)
-              case "Normal":
-                const greenIntensity = 0.4 + normalizedValue * 0.4
-                return new THREE.Color(0.1, greenIntensity, 0.1)
-              case "Low":
-                const blueIntensity = 0.5 + normalizedValue * 0.3
-                return new THREE.Color(0.1, 0.2, blueIntensity)
-              default:
-                return new THREE.Color(0.5, 0.5, 0.5)
+          // palette
+          const BASE = new THREE.Color(0.42, 0.29, 0.23)
+          const HIGH = new THREE.Color(0.9, 0.1, 0.1)
+          const DISC = new THREE.Color(0.35, 0.35, 0.35)
+
+          const pickColor = (status: string, connected: boolean) => {
+            if (!connected) return DISC.clone()
+            if (status === "High") return HIGH.clone()
+            if (status === "Normal") return BASE.clone()
+            return DISC.clone() // Low / No Data
+          }
+
+          const ensureCache = () => {
+            if (cacheRef.current.length) return
+
+            scene.traverse((child: any) => {
+              if (!(child instanceof THREE.Mesh) || !child.geometry) return
+              const g: THREE.BufferGeometry = child.geometry
+              if (!g.attributes.position) return
+
+              // color attribute
+              if (!g.attributes.color) {
+                const colors = new Float32Array(g.attributes.position.count * 3)
+                g.setAttribute("color", new THREE.BufferAttribute(colors, 3))
+              }
+
+              // bounding box & axis detection
+              if (!g.boundingBox) g.computeBoundingBox()
+              const bb = g.boundingBox!
+              const min = bb.min.clone()
+              const size = new THREE.Vector3().subVectors(bb.max, bb.min)
+
+              // determine which axis is length (largest), lateral (2nd largest)
+              const sizes = [size.x, size.y, size.z] as const
+              const lenIdx = sizes.indexOf(Math.max(...sizes)) as 0 | 1 | 2
+              const remaining = [0, 1, 2].filter((i) => i !== lenIdx) as (0 | 1 | 2)[]
+              const latIdx = (sizes[remaining[0]] >= sizes[remaining[1]] ? remaining[0] : remaining[1]) as 0 | 1 | 2
+
+              // Make sure materials actually use vertex colors
+              const enableVC = (m: any) => {
+                if (!m) return
+                if (Array.isArray(m)) {
+                  m.forEach(enableVC)
+                  return
+                }
+                if (!(m instanceof THREE.MeshStandardMaterial)) {
+                  const next = new THREE.MeshStandardMaterial()
+                  next.roughness = 0.9
+                  next.metalness = 0.0
+                  child.material = next
+                }
+                const mat = child.material as THREE.MeshStandardMaterial
+                mat.vertexColors = true
+                mat.transparent = true(mat as any).map = null // remove base texture
+                mat.color.setRGB(1, 1, 1) // avoid multiplying vertex colors
+                mat.needsUpdate = true
+              }
+              enableVC(child.material)
+
+              cacheRef.current.push({
+                mesh: child,
+                colors: g.attributes.color as THREE.BufferAttribute,
+                positions: g.attributes.position as THREE.BufferAttribute,
+                min,
+                size,
+                lenIdx,
+                latIdx,
+              })
+            })
+          }
+
+          const writeColors = (time: number) => {
+            // Debug paths to prove the pipeline works
+            if (DEBUG === "forceRed") {
+              cacheRef.current.forEach(({ colors, positions }) => {
+                for (let i = 0; i < positions.count; i++) colors.setXYZ(i, 1, 0, 0)
+                colors.needsUpdate = true
+              })
+              return
             }
+
+            const anyHigh =
+              pressureData.heel.status === "High" ||
+              pressureData.leftAnkle.status === "High" ||
+              pressureData.rightAnkle.status === "High"
+
+            const pulse = anyHigh ? 1 + 0.15 * Math.sin(time * 3.0) : 1
+
+            const heelCol = pickColor(pressureData.heel.status, isConnected)
+            const leftCol = pickColor(pressureData.leftAnkle.status, isConnected)
+            const rightCol = pickColor(pressureData.rightAnkle.status, isConnected)
+
+            if (pressureData.heel.status === "High") heelCol.multiplyScalar(pulse)
+            if (pressureData.leftAnkle.status === "High") leftCol.multiplyScalar(pulse)
+            if (pressureData.rightAnkle.status === "High") rightCol.multiplyScalar(pulse)
+
+            cacheRef.current.forEach(({ mesh, colors, positions, min, size, lenIdx, latIdx }) => {
+              const v = new THREE.Vector3()
+
+              // disconnected: short-circuit to grey & lower opacity
+              if (!isConnected) {
+                for (let i = 0; i < positions.count; i++) colors.setXYZ(i, DISC.r, DISC.g, DISC.b)
+                colors.needsUpdate = true
+                const mat = (
+                  Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+                ) as THREE.MeshStandardMaterial
+                if (mat) mat.opacity = 0.4
+                return
+              }
+
+              const base = BASE
+              const center = 0.5
+
+              for (let i = 0; i < positions.count; i++) {
+                v.fromBufferAttribute(positions, i) // LOCAL space
+
+                // normalize
+                const n = [
+                  (v.x - min.x) / (size.x || 1e-6),
+                  (v.y - min.y) / (size.y || 1e-6),
+                  (v.z - min.z) / (size.z || 1e-6),
+                ] as const
+
+                const L = n[lenIdx] // length 0..1 (0 = heel end)
+                let LR = n[latIdx] // lateral 0..1 (0 = medial, 1 = lateral)
+                if (SWAP_LR) LR = 1 - LR
+
+                const isHeel = L < HEEL_END
+                const isRightAnkle = L > ANKLE_START && LR > center + LATERAL_GAP
+                const isLeftAnkle = L > ANKLE_START && LR < center - LATERAL_GAP
+
+                let out = base
+
+                if (DEBUG === "gradient") {
+                  // visualize axes: length on R, lateral on G, height-ish on B
+                  out = new THREE.Color(L, LR, 1 - L)
+                } else if (isHeel) {
+                  out = heelCol
+                } else if (isRightAnkle) {
+                  out = rightCol
+                } else if (isLeftAnkle) {
+                  out = leftCol
+                } else {
+                  // soft blends
+                  const heelInf = Math.max(0, (HEEL_END - L) / HEEL_END)
+                  const rInf =
+                    Math.max(0, (LR - (center + LATERAL_GAP)) / (1 - (center + LATERAL_GAP))) *
+                    Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
+                  const lInf =
+                    Math.max(0, (center - LATERAL_GAP - LR) / (center - LATERAL_GAP)) *
+                    Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
+                  const total = heelInf + rInf + lInf
+
+                  if (total > 1e-5) {
+                    const tmp = new THREE.Color(0, 0, 0)
+                    tmp.addScaledVector(heelCol, heelInf / total)
+                    tmp.addScaledVector(rightCol, rInf / total)
+                    tmp.addScaledVector(leftCol, lInf / total)
+                    out = tmp
+                  }
+                }
+
+                colors.setXYZ(i, out.r, out.g, out.b)
+              }
+
+              colors.needsUpdate = true
+
+              const mat = (
+                Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+              ) as THREE.MeshStandardMaterial
+              if (mat) mat.opacity = 0.95
+            })
+          }
+
+          const needsRepaint = () => {
+            const sig = JSON.stringify(pressureData)
+            return sig !== lastPD.current || isConnected !== lastConn.current || DEBUG !== "none"
           }
 
           useFrame(() => {
-            if (meshRef.current && scene) {
-              const time = Date.now() * 0.003
-              const footMesh = scene.clone()
+            if (!scene) return
+            ensureCache()
+            const t = performance.now() * 0.001
+            const anyHigh =
+              pressureData.heel.status === "High" ||
+              pressureData.leftAnkle.status === "High" ||
+              pressureData.rightAnkle.status === "High"
 
-              const heelColor = getPressureColor(pressureData.heel.value, pressureData.heel.status)
-              const leftAnkleColor = getPressureColor(pressureData.leftAnkle.value, pressureData.leftAnkle.status)
-              const rightAnkleColor = getPressureColor(pressureData.rightAnkle.value, pressureData.rightAnkle.status)
-
-              const heelPulse = pressureData.heel.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
-              const leftPulse = pressureData.leftAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
-              const rightPulse = pressureData.rightAnkle.status === "High" ? 0.2 + Math.sin(time * 3) * 0.15 : 0
-
-              footMesh.traverse((child: any) => {
-                if (child instanceof THREE.Mesh && child.geometry) {
-                  const geometry = child.geometry
-                  const position = geometry.attributes.position
-
-                  if (!geometry.attributes.color) {
-                    const colors = new Float32Array(position.count * 3)
-                    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3))
-                  }
-
-                  const colors = geometry.attributes.color
-                  const vertex = new THREE.Vector3()
-
-                  for (let i = 0; i < position.count; i++) {
-                    vertex.fromBufferAttribute(position, i)
-                    child.localToWorld(vertex)
-
-                    let color = new THREE.Color(0.3, 0.3, 0.3)
-
-                    if (vertex.z < -0.15) {
-                      color = heelColor.clone().multiplyScalar(1 + heelPulse)
-                    } else if (vertex.x > 0.15 && vertex.z > -0.1) {
-                      color = rightAnkleColor.clone().multiplyScalar(1 + rightPulse)
-                    } else if (vertex.x < -0.15 && vertex.z > -0.1) {
-                      color = leftAnkleColor.clone().multiplyScalar(1 + leftPulse)
-                    } else {
-                      const heelInfluence = Math.max(0, 1 - (vertex.z + 0.15) / 0.3)
-                      const rightInfluence =
-                        Math.max(0, 1 - Math.abs(vertex.x - 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
-                      const leftInfluence =
-                        Math.max(0, 1 - Math.abs(vertex.x + 0.15) / 0.3) * Math.max(0, (vertex.z + 0.1) / 0.2)
-
-                      const totalInfluence = heelInfluence + rightInfluence + leftInfluence
-
-                      if (totalInfluence > 0) {
-                        color = new THREE.Color()
-                          .addScaledVector(
-                            heelColor.clone().multiplyScalar(1 + heelPulse),
-                            heelInfluence / totalInfluence,
-                          )
-                          .addScaledVector(
-                            rightAnkleColor.clone().multiplyScalar(1 + rightPulse),
-                            rightInfluence / totalInfluence,
-                          )
-                          .addScaledVector(
-                            leftAnkleColor.clone().multiplyScalar(1 + leftPulse),
-                            leftInfluence / totalInfluence,
-                          )
-                      }
-                    }
-
-                    if (!isConnected) {
-                      color.setHex(0x555555)
-                    }
-
-                    colors.setXYZ(i, color.r, color.g, color.b)
-                  }
-
-                  colors.needsUpdate = true
-
-                  const material = child.material
-                  if (isConnected) {
-                    material.vertexColors = true
-                    material.opacity = 0.95
-                    material.emissive.setRGB(0.05, 0.05, 0.05)
-                  } else {
-                    material.vertexColors = true
-                    material.opacity = 0.4
-                    material.emissive.setRGB(0, 0, 0)
-                  }
-                }
-              })
+            if (needsRepaint() || anyHigh) {
+              writeColors(t)
+              lastPD.current = JSON.stringify(pressureData)
+              lastConn.current = isConnected
             }
           })
 
           return (
-            <group ref={meshRef}>
-              <primitive object={scene.clone()} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
+            <group ref={groupRef}>
+              <primitive object={scene} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
             </group>
           )
         }
@@ -148,9 +261,7 @@ const FootModelInner = dynamic(
         return { default: FootModelComponent }
       },
     ),
-  {
-    ssr: false,
-  },
+  { ssr: false },
 )
 
 function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
@@ -311,19 +422,37 @@ export default function FootPressureMonitor() {
       )}
 
       <div className="flex border-b border-border">
-        {["Live", "History", "Settings"].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === tab
-                ? "text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        {[
+          { key: "Live", label: "Live", href: null },
+          { key: "History", label: "History", href: "/history" },
+          { key: "Settings", label: "Settings", href: null },
+        ].map((tab) =>
+          tab.href ? (
+            <Link key={tab.key} href={tab.href} className="flex-1">
+              <button
+                className={`w-full py-3 px-4 text-sm font-medium transition-colors ${
+                  activeTab === tab.key
+                    ? "text-primary border-b-2 border-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tab.label}
+              </button>
+            </Link>
+          ) : (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+                activeTab === tab.key
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ),
+        )}
       </div>
 
       <div className="p-4 space-y-6">
