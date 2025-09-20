@@ -5,262 +5,242 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RotateCcw } from "lucide-react"
-import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useSettings, getHeelThreshold, getAnkleThreshold, getCalibrationParams } from "@/lib/settings/useSettings"
 import { SettingsPanel } from "@/components/settings/SettingsPanel" // Import SettingsPanel component
+import { Canvas } from "@react-three/fiber"
+import { OrbitControls, useGLTF } from "@react-three/drei"
+import { useFrame } from "@react-three/fiber"
+import * as THREE from "three"
 
-const Canvas = dynamic(() => import("@react-three/fiber").then((mod) => ({ default: mod.Canvas })), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-96 bg-slate-100 rounded-lg flex items-center justify-center">Loading 3D Model...</div>
-  ),
-})
+function FootModelInner({
+  isConnected,
+  pressureData,
+  calibrationSettings,
+  pulseOnHigh,
+}: {
+  isConnected: boolean
+  pressureData: any
+  calibrationSettings: any
+  pulseOnHigh: boolean
+}) {
+  const groupRef = useRef<THREE.Group>(null)
+  const { scene } = useGLTF("/human_foot_base_mesh.glb")
 
-const OrbitControls = dynamic(() => import("@react-three/drei").then((mod) => ({ default: mod.OrbitControls })), {
-  ssr: false,
-})
+  const HEEL_END = calibrationSettings.heelEnd
+  const ANKLE_START = calibrationSettings.ankleStart
+  const LATERAL_GAP = calibrationSettings.lateralGap
+  const SWAP_LR = calibrationSettings.swapLeftRight
 
-const FootModelInner = dynamic(
-  () =>
-    Promise.all([import("@react-three/drei"), import("@react-three/fiber"), import("three")]).then(
-      ([dreiMod, fiberMod, threeMod]) => {
-        const { useGLTF } = dreiMod
-        const { useFrame } = fiberMod
-        const THREE = threeMod
+  type MeshEntry = {
+    mesh: THREE.Mesh
+    colors: THREE.BufferAttribute
+    positions: THREE.BufferAttribute
+    min: THREE.Vector3
+    size: THREE.Vector3
+    lenIdx: 0 | 1 | 2
+    latIdx: 0 | 1 | 2
+  }
 
-        function FootModelComponent({
-          isConnected,
-          pressureData,
-          calibrationSettings,
-          pulseOnHigh,
-        }: {
-          isConnected: boolean
-          pressureData: any
-          calibrationSettings: any
-          pulseOnHigh: boolean
-        }) {
-          const groupRef = useRef<THREE.Group>(null)
-          const { scene } = useGLTF("/human_foot_base_mesh.glb")
+  const cacheRef = useRef<MeshEntry[]>([])
+  const lastPD = useRef<string>("")
+  const lastConn = useRef<boolean>(false)
 
-          const HEEL_END = calibrationSettings.heelEnd
-          const ANKLE_START = calibrationSettings.ankleStart
-          const LATERAL_GAP = calibrationSettings.lateralGap
-          const SWAP_LR = calibrationSettings.swapLeftRight
+  const BASE = new THREE.Color(0.42, 0.29, 0.23)
+  const HIGH = new THREE.Color(0.9, 0.1, 0.1)
+  const DISC = new THREE.Color(0.35, 0.35, 0.35)
 
-          const DEBUG: "none" | "gradient" | "forceRed" = "none"
+  const pickColor = (status: string, connected: boolean) => {
+    if (!connected) return DISC.clone()
+    if (status === "High") return HIGH.clone()
+    if (status === "Normal") return BASE.clone()
+    return DISC.clone()
+  }
 
-          type MeshEntry = {
-            mesh: THREE.Mesh
-            colors: THREE.BufferAttribute
-            positions: THREE.BufferAttribute
-            min: THREE.Vector3
-            size: THREE.Vector3
-            lenIdx: 0 | 1 | 2
-            latIdx: 0 | 1 | 2
+  const ensureCache = () => {
+    if (cacheRef.current.length) return
+
+    scene.traverse((child: any) => {
+      if (!(child instanceof THREE.Mesh) || !child.geometry) return
+      const g: THREE.BufferGeometry = child.geometry
+      if (!g.attributes.position) return
+
+      if (!g.attributes.color) {
+        const colors = new Float32Array(g.attributes.position.count * 3)
+        g.setAttribute("color", new THREE.BufferAttribute(colors, 3))
+      }
+
+      if (!g.boundingBox) g.computeBoundingBox()
+      const bb = g.boundingBox!
+      const min = bb.min.clone()
+      const size = new THREE.Vector3().subVectors(bb.max, bb.min)
+
+      const sizes = [size.x, size.y, size.z] as const
+      const lenIdx = sizes.indexOf(Math.max(...sizes)) as 0 | 1 | 2
+      const remaining = [0, 1, 2].filter((i) => i !== lenIdx) as (0 | 1 | 2)[]
+      const latIdx = (sizes[remaining[0]] >= sizes[remaining[1]] ? remaining[0] : remaining[1]) as 0 | 1 | 2
+
+      const enableVC = (m: any) => {
+        if (!m) return
+        if (Array.isArray(m)) {
+          m.forEach(enableVC)
+          return
+        }
+        if (!(m instanceof THREE.MeshStandardMaterial)) {
+          const next = new THREE.MeshStandardMaterial()
+          next.roughness = 0.9
+          next.metalness = 0.0
+          child.material = next
+        }
+        const mat = child.material as THREE.MeshStandardMaterial
+        mat.vertexColors = true
+        mat.transparent = true;
+        (mat as any).map = null
+        mat.color.setRGB(1, 1, 1)
+        mat.needsUpdate = true
+      }
+      enableVC(child.material)
+
+      cacheRef.current.push({
+        mesh: child,
+        colors: g.attributes.color as THREE.BufferAttribute,
+        positions: g.attributes.position as THREE.BufferAttribute,
+        min,
+        size,
+        lenIdx,
+        latIdx,
+      })
+    })
+  }
+
+  const writeColors = (time: number) => {
+    // Debug mode for force red coloring (currently disabled)
+    // if (DEBUG === "forceRed") {
+    //   cacheRef.current.forEach(({ colors, positions }) => {
+    //     for (let i = 0; i < positions.count; i++) colors.setXYZ(i, 1, 0, 0)
+    //     colors.needsUpdate = true
+    //   })
+    //   return
+    // }
+
+    const anyHigh =
+      pressureData.heel.status === "High" ||
+      pressureData.leftAnkle.status === "High" ||
+      pressureData.rightAnkle.status === "High"
+
+    const pulse = anyHigh && pulseOnHigh ? 1 + 0.15 * Math.sin(time * 3.0) : 1
+
+    const heelCol = pickColor(pressureData.heel.status, isConnected)
+    const leftCol = pickColor(pressureData.leftAnkle.status, isConnected)
+    const rightCol = pickColor(pressureData.rightAnkle.status, isConnected)
+
+    if (pressureData.heel.status === "High" && pulseOnHigh) heelCol.multiplyScalar(pulse)
+    if (pressureData.leftAnkle.status === "High" && pulseOnHigh) leftCol.multiplyScalar(pulse)
+    if (pressureData.rightAnkle.status === "High" && pulseOnHigh) rightCol.multiplyScalar(pulse)
+
+    cacheRef.current.forEach(({ mesh, colors, positions, min, size, lenIdx, latIdx }) => {
+      const v = new THREE.Vector3()
+
+      if (!isConnected) {
+        for (let i = 0; i < positions.count; i++) colors.setXYZ(i, DISC.r, DISC.g, DISC.b)
+        colors.needsUpdate = true
+        const mat = (
+          Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+        ) as THREE.MeshStandardMaterial
+        if (mat) mat.opacity = 0.4
+        return
+      }
+
+      const base = BASE
+      const center = 0.5
+
+      for (let i = 0; i < positions.count; i++) {
+        v.fromBufferAttribute(positions, i)
+
+        const n = [
+          (v.x - min.x) / (size.x || 1e-6),
+          (v.y - min.y) / (size.y || 1e-6),
+          (v.z - min.z) / (size.z || 1e-6),
+        ] as const
+
+        const L = n[lenIdx]
+        let LR = n[latIdx]
+        if (SWAP_LR) LR = 1 - LR
+
+        const isHeel = L < HEEL_END
+        const isRightAnkle = L > ANKLE_START && LR > center + LATERAL_GAP
+        const isLeftAnkle = L > ANKLE_START && LR < center - LATERAL_GAP
+
+        let out = base
+
+        // Debug mode for gradient coloring (currently disabled)
+        // if (DEBUG === "gradient") {
+        //   out = new THREE.Color(L, LR, 1 - L)
+        // } else 
+        if (isHeel) {
+          out = heelCol
+        } else if (isRightAnkle) {
+          out = rightCol
+        } else if (isLeftAnkle) {
+          out = leftCol
+        } else {
+          const heelInf = Math.max(0, (HEEL_END - L) / HEEL_END)
+          const rInf =
+            Math.max(0, (LR - (center + LATERAL_GAP)) / (1 - (center + LATERAL_GAP))) *
+            Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
+          const lInf =
+            Math.max(0, (center - LATERAL_GAP - LR) / (center - LATERAL_GAP)) *
+            Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
+          const total = heelInf + rInf + lInf
+
+          if (total > 1e-5) {
+            const tmp = new THREE.Color(0, 0, 0)
+            tmp.add(heelCol.clone().multiplyScalar(heelInf / total))
+            tmp.add(rightCol.clone().multiplyScalar(rInf / total))
+            tmp.add(leftCol.clone().multiplyScalar(lInf / total))
+            out = tmp
           }
-
-          const cacheRef = useRef<MeshEntry[]>([])
-          const lastPD = useRef<string>("")
-          const lastConn = useRef<boolean>(false)
-
-          const BASE = new THREE.Color(0.42, 0.29, 0.23)
-          const HIGH = new THREE.Color(0.9, 0.1, 0.1)
-          const DISC = new THREE.Color(0.35, 0.35, 0.35)
-
-          const pickColor = (status: string, connected: boolean) => {
-            if (!connected) return DISC.clone()
-            if (status === "High") return HIGH.clone()
-            if (status === "Normal") return BASE.clone()
-            return DISC.clone()
-          }
-
-          const ensureCache = () => {
-            if (cacheRef.current.length) return
-
-            scene.traverse((child: any) => {
-              if (!(child instanceof THREE.Mesh) || !child.geometry) return
-              const g: THREE.BufferGeometry = child.geometry
-              if (!g.attributes.position) return
-
-              if (!g.attributes.color) {
-                const colors = new Float32Array(g.attributes.position.count * 3)
-                g.setAttribute("color", new THREE.BufferAttribute(colors, 3))
-              }
-
-              if (!g.boundingBox) g.computeBoundingBox()
-              const bb = g.boundingBox!
-              const min = bb.min.clone()
-              const size = new THREE.Vector3().subVectors(bb.max, bb.min)
-
-              const sizes = [size.x, size.y, size.z] as const
-              const lenIdx = sizes.indexOf(Math.max(...sizes)) as 0 | 1 | 2
-              const remaining = [0, 1, 2].filter((i) => i !== lenIdx) as (0 | 1 | 2)[]
-              const latIdx = (sizes[remaining[0]] >= sizes[remaining[1]] ? remaining[0] : remaining[1]) as 0 | 1 | 2
-
-              const enableVC = (m: any) => {
-                if (!m) return
-                if (Array.isArray(m)) {
-                  m.forEach(enableVC)
-                  return
-                }
-                if (!(m instanceof THREE.MeshStandardMaterial)) {
-                  const next = new THREE.MeshStandardMaterial()
-                  next.roughness = 0.9
-                  next.metalness = 0.0
-                  child.material = next
-                }
-                const mat = child.material as THREE.MeshStandardMaterial
-                mat.vertexColors = true
-                mat.transparent = true(mat as any).map = null
-                mat.color.setRGB(1, 1, 1)
-                mat.needsUpdate = true
-              }
-              enableVC(child.material)
-
-              cacheRef.current.push({
-                mesh: child,
-                colors: g.attributes.color as THREE.BufferAttribute,
-                positions: g.attributes.position as THREE.BufferAttribute,
-                min,
-                size,
-                lenIdx,
-                latIdx,
-              })
-            })
-          }
-
-          const writeColors = (time: number) => {
-            if (DEBUG === "forceRed") {
-              cacheRef.current.forEach(({ colors, positions }) => {
-                for (let i = 0; i < positions.count; i++) colors.setXYZ(i, 1, 0, 0)
-                colors.needsUpdate = true
-              })
-              return
-            }
-
-            const anyHigh =
-              pressureData.heel.status === "High" ||
-              pressureData.leftAnkle.status === "High" ||
-              pressureData.rightAnkle.status === "High"
-
-            const pulse = anyHigh && pulseOnHigh ? 1 + 0.15 * Math.sin(time * 3.0) : 1
-
-            const heelCol = pickColor(pressureData.heel.status, isConnected)
-            const leftCol = pickColor(pressureData.leftAnkle.status, isConnected)
-            const rightCol = pickColor(pressureData.rightAnkle.status, isConnected)
-
-            if (pressureData.heel.status === "High" && pulseOnHigh) heelCol.multiplyScalar(pulse)
-            if (pressureData.leftAnkle.status === "High" && pulseOnHigh) leftCol.multiplyScalar(pulse)
-            if (pressureData.rightAnkle.status === "High" && pulseOnHigh) rightCol.multiplyScalar(pulse)
-
-            cacheRef.current.forEach(({ mesh, colors, positions, min, size, lenIdx, latIdx }) => {
-              const v = new THREE.Vector3()
-
-              if (!isConnected) {
-                for (let i = 0; i < positions.count; i++) colors.setXYZ(i, DISC.r, DISC.g, DISC.b)
-                colors.needsUpdate = true
-                const mat = (
-                  Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
-                ) as THREE.MeshStandardMaterial
-                if (mat) mat.opacity = 0.4
-                return
-              }
-
-              const base = BASE
-              const center = 0.5
-
-              for (let i = 0; i < positions.count; i++) {
-                v.fromBufferAttribute(positions, i)
-
-                const n = [
-                  (v.x - min.x) / (size.x || 1e-6),
-                  (v.y - min.y) / (size.y || 1e-6),
-                  (v.z - min.z) / (size.z || 1e-6),
-                ] as const
-
-                const L = n[lenIdx]
-                let LR = n[latIdx]
-                if (SWAP_LR) LR = 1 - LR
-
-                const isHeel = L < HEEL_END
-                const isRightAnkle = L > ANKLE_START && LR > center + LATERAL_GAP
-                const isLeftAnkle = L > ANKLE_START && LR < center - LATERAL_GAP
-
-                let out = base
-
-                if (DEBUG === "gradient") {
-                  out = new THREE.Color(L, LR, 1 - L)
-                } else if (isHeel) {
-                  out = heelCol
-                } else if (isRightAnkle) {
-                  out = rightCol
-                } else if (isLeftAnkle) {
-                  out = leftCol
-                } else {
-                  const heelInf = Math.max(0, (HEEL_END - L) / HEEL_END)
-                  const rInf =
-                    Math.max(0, (LR - (center + LATERAL_GAP)) / (1 - (center + LATERAL_GAP))) *
-                    Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
-                  const lInf =
-                    Math.max(0, (center - LATERAL_GAP - LR) / (center - LATERAL_GAP)) *
-                    Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
-                  const total = heelInf + rInf + lInf
-
-                  if (total > 1e-5) {
-                    const tmp = new THREE.Color(0, 0, 0)
-                    tmp.addScaledVector(heelCol, heelInf / total)
-                    tmp.addScaledVector(rightCol, rInf / total)
-                    tmp.addScaledVector(leftCol, lInf / total)
-                    out = tmp
-                  }
-                }
-
-                colors.setXYZ(i, out.r, out.g, out.b)
-              }
-
-              colors.needsUpdate = true
-
-              const mat = (
-                Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
-              ) as THREE.MeshStandardMaterial
-              if (mat) mat.opacity = 0.95
-            })
-          }
-
-          const needsRepaint = () => {
-            const sig = JSON.stringify(pressureData)
-            return sig !== lastPD.current || isConnected !== lastConn.current || DEBUG !== "none"
-          }
-
-          useFrame(() => {
-            if (!scene) return
-            ensureCache()
-            const t = performance.now() * 0.001
-            const anyHigh =
-              pressureData.heel.status === "High" ||
-              pressureData.leftAnkle.status === "High" ||
-              pressureData.rightAnkle.status === "High"
-
-            if (needsRepaint() || (anyHigh && pulseOnHigh)) {
-              writeColors(t)
-              lastPD.current = JSON.stringify(pressureData)
-              lastConn.current = isConnected
-            }
-          })
-
-          return (
-            <group ref={groupRef}>
-              <primitive object={scene} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
-            </group>
-          )
         }
 
-        return { default: FootModelComponent }
-      },
-    ),
-  { ssr: false },
-)
+        colors.setXYZ(i, out.r, out.g, out.b)
+      }
+
+      colors.needsUpdate = true
+
+      const mat = (
+        Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+      ) as THREE.MeshStandardMaterial
+      if (mat) mat.opacity = 0.95
+    })
+  }
+
+  const needsRepaint = () => {
+    const sig = JSON.stringify(pressureData)
+    return sig !== lastPD.current || isConnected !== lastConn.current
+  }
+
+  useFrame(() => {
+    if (!scene) return
+    ensureCache()
+    const t = performance.now() * 0.001
+    const anyHigh =
+      pressureData.heel.status === "High" ||
+      pressureData.leftAnkle.status === "High" ||
+      pressureData.rightAnkle.status === "High"
+
+    if (needsRepaint() || (anyHigh && pulseOnHigh)) {
+      writeColors(t)
+      lastPD.current = JSON.stringify(pressureData)
+      lastConn.current = isConnected
+    }
+  })
+
+  return (
+    <group ref={groupRef}>
+      <primitive object={scene} scale={[2, 2, 2]} rotation={[0, 0, 0]} position={[0, -1, 0]} />
+    </group>
+  )
+}
 
 function ThreeJSFootVisualization({
   isConnected,
