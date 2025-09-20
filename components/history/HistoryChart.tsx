@@ -176,21 +176,37 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
           ))}
 
           {/* Data lines */}
-          <Line type="monotone" dataKey="heel" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="Heel" />
+          <Line
+            type="monotone"
+            dataKey="heel"
+            stroke="hsl(var(--destructive))"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+            connectNulls={true}
+            isAnimationActive={false}
+            name="Heel"
+          />
           <Line
             type="monotone"
             dataKey="leftAnkle"
-            stroke="hsl(var(--chart-2))"
+            stroke="hsl(var(--primary))"
             strokeWidth={2}
             dot={false}
+            activeDot={{ r: 4 }}
+            connectNulls={true}
+            isAnimationActive={false}
             name="Left Ankle"
           />
           <Line
             type="monotone"
             dataKey="rightAnkle"
-            stroke="hsl(var(--chart-4))"
+            stroke="hsl(var(--muted-foreground))"
             strokeWidth={2}
             dot={false}
+            activeDot={{ r: 4 }}
+            connectNulls={true}
+            isAnimationActive={false}
             name="Right Ankle"
           />
 

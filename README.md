@@ -1,6 +1,6 @@
-# hiii
+# Intro
 
-this is smart ass app, jk smart-s
+Smart-S app 
 
 ## overview
 
@@ -17,5 +17,3 @@ the project is live at:
 building it here:
 
 **[https://v0.app/chat/projects/LAPfzfXJDC6](https://v0.app/chat/projects/LAPfzfXJDC6)**
-
-## bye
