@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RotateCcw } from "lucide-react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
+import { useSettings, getHeelThreshold, getAnkleThreshold, getCalibrationParams } from "@/lib/settings/useSettings"
+import { SettingsPanel } from "@/components/settings/SettingsPanel" // Import SettingsPanel component
 
 const Canvas = dynamic(() => import("@react-three/fiber").then((mod) => ({ default: mod.Canvas })), {
   ssr: false,
@@ -27,19 +29,26 @@ const FootModelInner = dynamic(
         const { useFrame } = fiberMod
         const THREE = threeMod
 
-        // ---- Tunables ----
-        // Region thresholds in normalized [0..1] "length" / "lateral" axes
-        const HEEL_END = 0.18 // back 18% of length is heel
-        const ANKLE_START = 0.35 // ankle begins after 35% of length
-        const LATERAL_GAP = 0.12 // +/- 12% from center for left/right
-        const SWAP_LR = false // set true if your GLB's lateral sign is flipped
-
-        // Quick debug: "none" | "gradient" | "forceRed"
-        const DEBUG: "none" | "gradient" | "forceRed" = "none"
-
-        function FootModelComponent({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
+        function FootModelComponent({
+          isConnected,
+          pressureData,
+          calibrationSettings,
+          pulseOnHigh,
+        }: {
+          isConnected: boolean
+          pressureData: any
+          calibrationSettings: any
+          pulseOnHigh: boolean
+        }) {
           const groupRef = useRef<THREE.Group>(null)
           const { scene } = useGLTF("/human_foot_base_mesh.glb")
+
+          const HEEL_END = calibrationSettings.heelEnd
+          const ANKLE_START = calibrationSettings.ankleStart
+          const LATERAL_GAP = calibrationSettings.lateralGap
+          const SWAP_LR = calibrationSettings.swapLeftRight
+
+          const DEBUG: "none" | "gradient" | "forceRed" = "none"
 
           type MeshEntry = {
             mesh: THREE.Mesh
@@ -47,7 +56,6 @@ const FootModelInner = dynamic(
             positions: THREE.BufferAttribute
             min: THREE.Vector3
             size: THREE.Vector3
-            // axis mapping (indices 0=x,1=y,2=z)
             lenIdx: 0 | 1 | 2
             latIdx: 0 | 1 | 2
           }
@@ -56,7 +64,6 @@ const FootModelInner = dynamic(
           const lastPD = useRef<string>("")
           const lastConn = useRef<boolean>(false)
 
-          // palette
           const BASE = new THREE.Color(0.42, 0.29, 0.23)
           const HIGH = new THREE.Color(0.9, 0.1, 0.1)
           const DISC = new THREE.Color(0.35, 0.35, 0.35)
@@ -65,7 +72,7 @@ const FootModelInner = dynamic(
             if (!connected) return DISC.clone()
             if (status === "High") return HIGH.clone()
             if (status === "Normal") return BASE.clone()
-            return DISC.clone() // Low / No Data
+            return DISC.clone()
           }
 
           const ensureCache = () => {
@@ -76,25 +83,21 @@ const FootModelInner = dynamic(
               const g: THREE.BufferGeometry = child.geometry
               if (!g.attributes.position) return
 
-              // color attribute
               if (!g.attributes.color) {
                 const colors = new Float32Array(g.attributes.position.count * 3)
                 g.setAttribute("color", new THREE.BufferAttribute(colors, 3))
               }
 
-              // bounding box & axis detection
               if (!g.boundingBox) g.computeBoundingBox()
               const bb = g.boundingBox!
               const min = bb.min.clone()
               const size = new THREE.Vector3().subVectors(bb.max, bb.min)
 
-              // determine which axis is length (largest), lateral (2nd largest)
               const sizes = [size.x, size.y, size.z] as const
               const lenIdx = sizes.indexOf(Math.max(...sizes)) as 0 | 1 | 2
               const remaining = [0, 1, 2].filter((i) => i !== lenIdx) as (0 | 1 | 2)[]
               const latIdx = (sizes[remaining[0]] >= sizes[remaining[1]] ? remaining[0] : remaining[1]) as 0 | 1 | 2
 
-              // Make sure materials actually use vertex colors
               const enableVC = (m: any) => {
                 if (!m) return
                 if (Array.isArray(m)) {
@@ -109,8 +112,8 @@ const FootModelInner = dynamic(
                 }
                 const mat = child.material as THREE.MeshStandardMaterial
                 mat.vertexColors = true
-                mat.transparent = true(mat as any).map = null // remove base texture
-                mat.color.setRGB(1, 1, 1) // avoid multiplying vertex colors
+                mat.transparent = true(mat as any).map = null
+                mat.color.setRGB(1, 1, 1)
                 mat.needsUpdate = true
               }
               enableVC(child.material)
@@ -128,7 +131,6 @@ const FootModelInner = dynamic(
           }
 
           const writeColors = (time: number) => {
-            // Debug paths to prove the pipeline works
             if (DEBUG === "forceRed") {
               cacheRef.current.forEach(({ colors, positions }) => {
                 for (let i = 0; i < positions.count; i++) colors.setXYZ(i, 1, 0, 0)
@@ -142,20 +144,19 @@ const FootModelInner = dynamic(
               pressureData.leftAnkle.status === "High" ||
               pressureData.rightAnkle.status === "High"
 
-            const pulse = anyHigh ? 1 + 0.15 * Math.sin(time * 3.0) : 1
+            const pulse = anyHigh && pulseOnHigh ? 1 + 0.15 * Math.sin(time * 3.0) : 1
 
             const heelCol = pickColor(pressureData.heel.status, isConnected)
             const leftCol = pickColor(pressureData.leftAnkle.status, isConnected)
             const rightCol = pickColor(pressureData.rightAnkle.status, isConnected)
 
-            if (pressureData.heel.status === "High") heelCol.multiplyScalar(pulse)
-            if (pressureData.leftAnkle.status === "High") leftCol.multiplyScalar(pulse)
-            if (pressureData.rightAnkle.status === "High") rightCol.multiplyScalar(pulse)
+            if (pressureData.heel.status === "High" && pulseOnHigh) heelCol.multiplyScalar(pulse)
+            if (pressureData.leftAnkle.status === "High" && pulseOnHigh) leftCol.multiplyScalar(pulse)
+            if (pressureData.rightAnkle.status === "High" && pulseOnHigh) rightCol.multiplyScalar(pulse)
 
             cacheRef.current.forEach(({ mesh, colors, positions, min, size, lenIdx, latIdx }) => {
               const v = new THREE.Vector3()
 
-              // disconnected: short-circuit to grey & lower opacity
               if (!isConnected) {
                 for (let i = 0; i < positions.count; i++) colors.setXYZ(i, DISC.r, DISC.g, DISC.b)
                 colors.needsUpdate = true
@@ -170,17 +171,16 @@ const FootModelInner = dynamic(
               const center = 0.5
 
               for (let i = 0; i < positions.count; i++) {
-                v.fromBufferAttribute(positions, i) // LOCAL space
+                v.fromBufferAttribute(positions, i)
 
-                // normalize
                 const n = [
                   (v.x - min.x) / (size.x || 1e-6),
                   (v.y - min.y) / (size.y || 1e-6),
                   (v.z - min.z) / (size.z || 1e-6),
                 ] as const
 
-                const L = n[lenIdx] // length 0..1 (0 = heel end)
-                let LR = n[latIdx] // lateral 0..1 (0 = medial, 1 = lateral)
+                const L = n[lenIdx]
+                let LR = n[latIdx]
                 if (SWAP_LR) LR = 1 - LR
 
                 const isHeel = L < HEEL_END
@@ -190,7 +190,6 @@ const FootModelInner = dynamic(
                 let out = base
 
                 if (DEBUG === "gradient") {
-                  // visualize axes: length on R, lateral on G, height-ish on B
                   out = new THREE.Color(L, LR, 1 - L)
                 } else if (isHeel) {
                   out = heelCol
@@ -199,7 +198,6 @@ const FootModelInner = dynamic(
                 } else if (isLeftAnkle) {
                   out = leftCol
                 } else {
-                  // soft blends
                   const heelInf = Math.max(0, (HEEL_END - L) / HEEL_END)
                   const rInf =
                     Math.max(0, (LR - (center + LATERAL_GAP)) / (1 - (center + LATERAL_GAP))) *
@@ -244,7 +242,7 @@ const FootModelInner = dynamic(
               pressureData.leftAnkle.status === "High" ||
               pressureData.rightAnkle.status === "High"
 
-            if (needsRepaint() || anyHigh) {
+            if (needsRepaint() || (anyHigh && pulseOnHigh)) {
               writeColors(t)
               lastPD.current = JSON.stringify(pressureData)
               lastConn.current = isConnected
@@ -264,7 +262,17 @@ const FootModelInner = dynamic(
   { ssr: false },
 )
 
-function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: boolean; pressureData: any }) {
+function ThreeJSFootVisualization({
+  isConnected,
+  pressureData,
+  calibrationSettings,
+  pulseOnHigh,
+}: {
+  isConnected: boolean
+  pressureData: any
+  calibrationSettings: any
+  pulseOnHigh: boolean
+}) {
   const [isClient, setIsClient] = useState(false)
 
   useEffect(() => {
@@ -287,7 +295,12 @@ function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: 
         <pointLight position={[-10, -10, -5]} intensity={0.3} />
 
         <Suspense fallback={null}>
-          <FootModelInner isConnected={isConnected} pressureData={pressureData} />
+          <FootModelInner
+            isConnected={isConnected}
+            pressureData={pressureData}
+            calibrationSettings={calibrationSettings}
+            pulseOnHigh={pulseOnHigh}
+          />
         </Suspense>
 
         <OrbitControls
@@ -306,6 +319,7 @@ function ThreeJSFootVisualization({ isConnected, pressureData }: { isConnected: 
 export default function FootPressureMonitor() {
   const [isConnected, setIsConnected] = useState(false)
   const [activeTab, setActiveTab] = useState("Live")
+  const { settings } = useSettings()
   const [currentReadings, setCurrentReadings] = useState({
     heel: { value: 0, status: "No Data" },
     leftAnkle: { value: 0, status: "No Data" },
@@ -329,24 +343,27 @@ export default function FootPressureMonitor() {
     })
 
     const interval = setInterval(() => {
+      const heelThreshold = getHeelThreshold(settings)
+      const ankleThreshold = getAnkleThreshold(settings)
+
       setCurrentReadings((prev) => ({
         heel: {
           value: Math.round((prev.heel.value + (Math.random() - 0.5) * 10) * 10) / 10,
-          status: prev.heel.value > 300 ? "High" : prev.heel.value > 200 ? "Normal" : "Low",
+          status: prev.heel.value > heelThreshold ? "High" : prev.heel.value > 200 ? "Normal" : "Low",
         },
         leftAnkle: {
           value: Math.round((prev.leftAnkle.value + (Math.random() - 0.5) * 15) * 10) / 10,
-          status: prev.leftAnkle.value > 400 ? "High" : prev.leftAnkle.value > 250 ? "Normal" : "Low",
+          status: prev.leftAnkle.value > ankleThreshold ? "High" : prev.leftAnkle.value > 250 ? "Normal" : "Low",
         },
         rightAnkle: {
           value: Math.round((prev.rightAnkle.value + (Math.random() - 0.5) * 12) * 10) / 10,
-          status: prev.rightAnkle.value > 350 ? "High" : prev.rightAnkle.value > 200 ? "Normal" : "Low",
+          status: prev.rightAnkle.value > ankleThreshold ? "High" : prev.rightAnkle.value > 200 ? "Normal" : "Low",
         },
       }))
-    }, 2000)
+    }, settings.device.sampleIntervalMs)
 
     return () => clearInterval(interval)
-  }, [isConnected])
+  }, [isConnected, settings.device.sampleIntervalMs, settings])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -378,6 +395,12 @@ export default function FootPressureMonitor() {
     }
   }
 
+  const tabs = [
+    { key: "Live", label: "Live", href: null },
+    { key: "History", label: "History", href: "/history" },
+    { key: "Settings", label: "Settings", href: "/settings" },
+  ]
+
   return (
     <div className="min-h-screen bg-background">
       <div className="flex items-center justify-between p-4 border-b border-border">
@@ -389,44 +412,43 @@ export default function FootPressureMonitor() {
         </Button>
       </div>
 
-      {isConnected && (currentReadings.heel.status === "High" || currentReadings.rightAnkle.status === "High") && (
-        <Alert className="m-4 border-destructive/50 bg-destructive/10">
-          <AlertTriangle className="h-4 w-4 text-destructive" />
-          <AlertDescription className="text-destructive">
-            <div className="font-medium">
-              High pressure detected at {currentReadings.heel.status === "High" ? "heel" : "right ankle"}
-            </div>
-            <div className="text-sm mt-2 space-y-2">
-              <div>
-                <strong>Immediate action:</strong> Redistribute weight by shifting to the opposite foot or adjusting
-                your position. If seated, elevate the affected foot above heart level using pillows or a footrest.
+      {isConnected &&
+        settings.alerts.enabled &&
+        settings.alerts.modes.banner &&
+        (currentReadings.heel.status === "High" || currentReadings.rightAnkle.status === "High") && (
+          <Alert className="m-4 border-destructive/50 bg-destructive/10">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <AlertDescription className="text-destructive">
+              <div className="font-medium">
+                High pressure detected at {currentReadings.heel.status === "High" ? "heel" : "right ankle"}
               </div>
-              <div>
-                <strong>Positioning:</strong> For heel pressure, lean forward slightly and transfer weight to the balls
-                of your feet. For ankle pressure, rotate your ankle gently in circular motions and flex your toes upward
-                to improve circulation.
+              <div className="text-sm mt-2 space-y-2">
+                <div>
+                  <strong>Immediate action:</strong> Redistribute weight by shifting to the opposite foot or adjusting
+                  your position. If seated, elevate the affected foot above heart level using pillows or a footrest.
+                </div>
+                <div>
+                  <strong>Positioning:</strong> For heel pressure, lean forward slightly and transfer weight to the
+                  balls of your feet. For ankle pressure, rotate your ankle gently in circular motions and flex your
+                  toes upward to improve circulation.
+                </div>
+                <div>
+                  <strong>Relief techniques:</strong> Apply gentle massage to the affected area using circular motions.
+                  Remove tight footwear if possible and wiggle your toes to promote blood flow. Consider using a
+                  pressure-relieving cushion or orthotic insert.
+                </div>
+                <div>
+                  <strong>Duration:</strong> Maintain pressure relief for 15-30 minutes initially. If pressure readings
+                  remain high after repositioning, consult a healthcare professional. Monitor for numbness, tingling, or
+                  color changes in the foot.
+                </div>
               </div>
-              <div>
-                <strong>Relief techniques:</strong> Apply gentle massage to the affected area using circular motions.
-                Remove tight footwear if possible and wiggle your toes to promote blood flow. Consider using a
-                pressure-relieving cushion or orthotic insert.
-              </div>
-              <div>
-                <strong>Duration:</strong> Maintain pressure relief for 15-30 minutes initially. If pressure readings
-                remain high after repositioning, consult a healthcare professional. Monitor for numbness, tingling, or
-                color changes in the foot.
-              </div>
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
+            </AlertDescription>
+          </Alert>
+        )}
 
       <div className="flex border-b border-border">
-        {[
-          { key: "Live", label: "Live", href: null },
-          { key: "History", label: "History", href: "/history" },
-          { key: "Settings", label: "Settings", href: null },
-        ].map((tab) =>
+        {tabs.map((tab) =>
           tab.href ? (
             <Link key={tab.key} href={tab.href} className="flex-1">
               <button
@@ -455,56 +477,76 @@ export default function FootPressureMonitor() {
         )}
       </div>
 
-      <div className="p-4 space-y-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-foreground">3D Pressure Map</h2>
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <RotateCcw className="h-4 w-4" />
-                <span className="text-sm">360°</span>
-              </div>
-            </div>
+      {activeTab === "Settings" && (
+        <div className="p-4">
+          <SettingsPanel />
+        </div>
+      )}
 
-            <ThreeJSFootVisualization isConnected={isConnected} pressureData={currentReadings} />
-          </CardContent>
-        </Card>
+      {activeTab === "Live" && (
+        <div className="p-4 space-y-6">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-foreground">3D Pressure Map</h2>
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  <RotateCcw className="h-4 w-4" />
+                  <span className="text-sm">360°</span>
+                </div>
+              </div>
 
-        <Card>
-          <CardContent className="p-6">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Current Readings</h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.heel.status)}`}>
-                  {currentReadings.heel.status === "No Data" ? "—" : currentReadings.heel.value}
+              <ThreeJSFootVisualization
+                isConnected={isConnected}
+                pressureData={currentReadings}
+                calibrationSettings={getCalibrationParams(settings)}
+                pulseOnHigh={settings.visualization.pulseOnHigh}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Current Readings</h2>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${getReadingColor(currentReadings.heel.status)}`}>
+                    {currentReadings.heel.status === "No Data" ? "—" : currentReadings.heel.value}
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-2">Heel (kPa)</div>
+                  <Badge className={getStatusColor(currentReadings.heel.status)} variant="secondary">
+                    {currentReadings.heel.status}
+                  </Badge>
                 </div>
-                <div className="text-sm text-muted-foreground mb-2">Heel (kPa)</div>
-                <Badge className={getStatusColor(currentReadings.heel.status)} variant="secondary">
-                  {currentReadings.heel.status}
-                </Badge>
-              </div>
-              <div className="text-center">
-                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.leftAnkle.status)}`}>
-                  {currentReadings.leftAnkle.status === "No Data" ? "—" : currentReadings.leftAnkle.value}
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${getReadingColor(currentReadings.leftAnkle.status)}`}>
+                    {currentReadings.leftAnkle.status === "No Data" ? "—" : currentReadings.leftAnkle.value}
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-2">Left Ankle (kPa)</div>
+                  <Badge className={getStatusColor(currentReadings.leftAnkle.status)} variant="secondary">
+                    {currentReadings.leftAnkle.status}
+                  </Badge>
                 </div>
-                <div className="text-sm text-muted-foreground mb-2">Left Ankle (kPa)</div>
-                <Badge className={getStatusColor(currentReadings.leftAnkle.status)} variant="secondary">
-                  {currentReadings.leftAnkle.status}
-                </Badge>
-              </div>
-              <div className="text-center">
-                <div className={`text-2xl font-bold ${getReadingColor(currentReadings.rightAnkle.status)}`}>
-                  {currentReadings.rightAnkle.status === "No Data" ? "—" : currentReadings.rightAnkle.value}
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${getReadingColor(currentReadings.rightAnkle.status)}`}>
+                    {currentReadings.rightAnkle.status === "No Data" ? "—" : currentReadings.rightAnkle.value}
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-2">Right Ankle (kPa)</div>
+                  <Badge className={getStatusColor(currentReadings.rightAnkle.status)} variant="secondary">
+                    {currentReadings.rightAnkle.status}
+                  </Badge>
                 </div>
-                <div className="text-sm text-muted-foreground mb-2">Right Ankle (kPa)</div>
-                <Badge className={getStatusColor(currentReadings.rightAnkle.status)} variant="secondary">
-                  {currentReadings.rightAnkle.status}
-                </Badge>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "History" && (
+        <div className="p-4">
+          {/* Placeholder for History tab content */}
+          <p>History tab content goes here</p>
+        </div>
+      )}
     </div>
   )
 }

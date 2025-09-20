@@ -9,7 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@hookform/resolvers": "^3.10.0",
+    "@hookform/resolvers": "latest",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
     "@radix-ui/react-aspect-ratio": "1.1.1",
@@ -52,6 +52,7 @@
     "expo-gl": "latest",
     "geist": "latest",
     "html-to-image": "latest",
+    "immer": "latest",
     "input-otp": "1.4.1",
     "lucide-react": "^0.454.0",
     "next": "14.2.16",
@@ -59,7 +60,7 @@
     "react": "^18",
     "react-day-picker": "9.8.0",
     "react-dom": "^18",
-    "react-hook-form": "^7.60.0",
+    "react-hook-form": "latest",
     "react-native": "latest",
     "react-resizable-panels": "^2.1.7",
     "recharts": "latest",
@@ -68,8 +69,10 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "three": "latest",
+    "use-sync-external-store": "latest",
     "vaul": "^0.9.9",
-    "zod": "3.25.67"
+    "zod": "3.25.67",
+    "zustand": "latest"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
