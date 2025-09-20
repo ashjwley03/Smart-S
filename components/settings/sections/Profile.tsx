@@ -65,14 +65,14 @@ export function ProfileSection() {
         </div>
 
         <div className="pt-4">
-          <Button type="button" onClick={fillTimezone} variant="outline">
+          <Button type="button" onClick={fillTimezone} variant="outline" className="w-full sm:w-auto">
             Fill Timezone from Browser
           </Button>
           <p className="text-sm text-muted-foreground mt-2">Current timezone: {settings.history.timezone}</p>
         </div>
       </div>
 
-      <Button type="submit">Save Profile</Button>
+      <Button type="submit" className="w-full sm:w-auto">Save Profile</Button>
     </form>
   )
 }

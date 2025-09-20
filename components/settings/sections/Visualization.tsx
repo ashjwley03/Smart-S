@@ -114,7 +114,7 @@ export function VisualizationSection() {
         </div>
       </div>
 
-      <Button type="submit">Save Visualization Settings</Button>
+      <Button type="submit" className="w-full sm:w-auto">Save Visualization Settings</Button>
     </form>
   )
 }

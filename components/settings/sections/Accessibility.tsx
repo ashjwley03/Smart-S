@@ -106,7 +106,7 @@ export function AccessibilitySection() {
         </div>
       </div>
 
-      <Button type="submit">Save Accessibility Settings</Button>
+      <Button type="submit" className="w-full sm:w-auto">Save Accessibility Settings</Button>
     </form>
   )
 }

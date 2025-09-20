@@ -103,9 +103,9 @@ export function ControlsBar({
   }
 
   return (
-    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div className="flex flex-col gap-4">
       {/* Period Tabs */}
-      <div className="flex border border-border rounded-lg p-1">
+      <div className="flex border border-border rounded-lg p-1 w-full overflow-x-auto">
         {periods.map(({ value, label }) => (
           <Button
             key={value}
@@ -113,7 +113,7 @@ export function ControlsBar({
             size="sm"
             onClick={() => onPeriodChange(value)}
             disabled={isLoading}
-            className="text-sm"
+            className="text-sm whitespace-nowrap flex-shrink-0"
           >
             {label}
           </Button>
@@ -121,9 +121,9 @@ export function ControlsBar({
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full">
         {/* Interval Select */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Label htmlFor="interval" className="text-sm whitespace-nowrap">
             Interval:
           </Label>
@@ -134,7 +134,7 @@ export function ControlsBar({
             }
             disabled={isLoading}
           >
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-full sm:w-32 min-w-24">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -148,7 +148,7 @@ export function ControlsBar({
         </div>
 
         {/* Smoothing Toggle */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Label htmlFor="smoothing" className="text-sm whitespace-nowrap">
             Smoothing:
           </Label>
@@ -157,7 +157,7 @@ export function ControlsBar({
             onValueChange={(value) => onSmoothingChange(Number.parseInt(value))}
             disabled={isLoading}
           >
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-full sm:w-32 min-w-24">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -171,18 +171,20 @@ export function ControlsBar({
         </div>
 
         {/* Export Menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={isLoading || !data}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem onClick={exportCSV}>CSV (Current Range)</DropdownMenuItem>
-            <DropdownMenuItem onClick={exportPNG}>PNG (Chart Only)</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="w-full sm:w-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={isLoading || !data} className="w-full sm:w-auto">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={exportCSV}>CSV (Current Range)</DropdownMenuItem>
+              <DropdownMenuItem onClick={exportPNG}>PNG (Chart Only)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   )

@@ -104,16 +104,28 @@ export function DeviceSection() {
 
         <div className="space-y-2">
           <Label>Sensor Connection</Label>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
             {form.watch("preferredDeviceId") ? (
               <>
                 <Badge variant="secondary">Device Connected</Badge>
-                <Button type="button" onClick={forgetDevice} variant="outline" size="sm">
+                <Button 
+                  type="button" 
+                  onClick={forgetDevice} 
+                  variant="outline" 
+                  size="sm"
+                  className="w-full sm:w-auto"
+                >
                   Forget
                 </Button>
               </>
             ) : (
-              <Button type="button" onClick={connectSensor} disabled={isConnecting} variant="outline">
+              <Button 
+                type="button" 
+                onClick={connectSensor} 
+                disabled={isConnecting} 
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
                 {isConnecting ? "Connecting..." : "Connect Sensor"}
               </Button>
             )}
@@ -121,7 +133,7 @@ export function DeviceSection() {
         </div>
       </div>
 
-      <Button type="submit">Save Device Settings</Button>
+      <Button type="submit" className="w-full sm:w-auto">Save Device Settings</Button>
     </form>
   )
 }

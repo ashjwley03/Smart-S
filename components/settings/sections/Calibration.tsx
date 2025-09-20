@@ -152,7 +152,7 @@ export function CalibrationSection() {
           </div>
         </div>
 
-        <Button type="submit">Save Calibration</Button>
+        <Button type="submit" className="w-full sm:w-auto">Save Calibration</Button>
       </form>
 
       {/* Calibration Wizard */}
@@ -166,7 +166,7 @@ export function CalibrationSection() {
               <p className="text-muted-foreground">
                 Follow the calibration wizard to optimize sensor readings for your foot.
               </p>
-              <Button onClick={startCalibration}>Start Calibration</Button>
+              <Button onClick={startCalibration} className="w-full sm:w-auto">Start Calibration</Button>
             </div>
           )}
 
@@ -176,7 +176,7 @@ export function CalibrationSection() {
               <p className="text-muted-foreground">
                 Lift your foot completely off the sensor and press "Zero" to establish baseline.
               </p>
-              <Button onClick={nextStep}>Zero</Button>
+              <Button onClick={nextStep} className="w-full sm:w-auto">Zero</Button>
             </div>
           )}
 
@@ -187,7 +187,7 @@ export function CalibrationSection() {
               <div className="bg-muted p-4 rounded">
                 <p className="text-sm">Live reading: 245 kPa (Heel)</p>
               </div>
-              <Button onClick={nextStep}>Next</Button>
+              <Button onClick={nextStep} className="w-full sm:w-auto">Next</Button>
             </div>
           )}
 
@@ -200,7 +200,7 @@ export function CalibrationSection() {
               <div className="bg-muted p-4 rounded">
                 <p className="text-sm">Live reading: 312 kPa (Right Ankle)</p>
               </div>
-              <Button onClick={finishCalibration}>Finish Calibration</Button>
+              <Button onClick={finishCalibration} className="w-full sm:w-auto">Finish Calibration</Button>
             </div>
           )}
         </CardContent>

@@ -11,10 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { AlertTriangle, Download, Upload, RotateCcw, Save } from "lucide-react"
+import { AlertTriangle, Download, Upload, RotateCcw, Save, Menu } from "lucide-react"
 import { useSettings } from "@/lib/settings/useSettings"
 import { useToast } from "@/hooks/use-toast"
 import { ProfileSection } from "./sections/Profile"
@@ -172,9 +179,10 @@ export function SettingsPanel() {
 
   return (
     <>
-      <div className="flex h-[calc(100vh-73px)]">
-        {/* Left Navigation */}
-        <div className="w-64 border-r border-border bg-card">
+      {/* Mobile and Desktop Layout */}
+      <div className="lg:flex">
+        {/* Desktop Sidebar - Hidden on Mobile */}
+        <div className="hidden lg:block lg:w-64 border-r border-border bg-card">
           <div className="p-4">
             <nav className="space-y-1">
               {SECTIONS.map((section) => (
@@ -194,9 +202,26 @@ export function SettingsPanel() {
           </div>
         </div>
 
-        {/* Right Content */}
-        <div className="flex-1 flex flex-col">
-          <div className="flex-1 overflow-auto p-6">
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col min-h-screen lg:min-h-[calc(100vh-73px)]">
+          {/* Mobile Section Selector */}
+          <div className="lg:hidden px-4 py-4 border-b border-border bg-card">
+            <Select value={activeSection} onValueChange={setActiveSection}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a section" />
+              </SelectTrigger>
+              <SelectContent>
+                {SECTIONS.map((section) => (
+                  <SelectItem key={section.id} value={section.id}>
+                    {section.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Content Area */}
+          <div className="flex-1 overflow-auto p-4 lg:p-6">
             <Card>
               <CardHeader>
                 <CardTitle>{SECTIONS.find((s) => s.id === activeSection)?.label}</CardTitle>
@@ -209,23 +234,26 @@ export function SettingsPanel() {
 
           {/* Sticky Footer */}
           <div className="border-t border-border bg-card p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button onClick={handleImport} variant="outline" size="sm">
+            <div className="flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
+              {/* Import/Export Buttons */}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button onClick={handleImport} variant="outline" size="sm" className="w-full sm:w-auto">
                   <Upload className="h-4 w-4 mr-2" />
                   Import JSON
                 </Button>
-                <Button onClick={handleExport} variant="outline" size="sm">
+                <Button onClick={handleExport} variant="outline" size="sm" className="w-full sm:w-auto">
                   <Download className="h-4 w-4 mr-2" />
                   Export JSON
                 </Button>
               </div>
-              <div className="flex items-center gap-2">
-                <Button onClick={handleReset} variant="outline" size="sm">
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button onClick={handleReset} variant="outline" size="sm" className="w-full sm:w-auto">
                   <RotateCcw className="h-4 w-4 mr-2" />
                   Reset to Defaults
                 </Button>
-                <Button size="sm">
+                <Button size="sm" className="w-full sm:w-auto">
                   <Save className="h-4 w-4 mr-2" />
                   Save
                 </Button>

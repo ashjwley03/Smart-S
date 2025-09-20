@@ -94,23 +94,25 @@ function HistoryPageContent() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-border p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Live
-              </Button>
-            </Link>
-            <h1 className="text-2xl font-bold">History</h1>
-            <Badge variant="secondary">Demo Patient</Badge>
+      <div className="border-b border-border px-4 py-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+              <Link href="/">
+                <Button variant="ghost" size="sm">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Live
+                </Button>
+              </Link>
+              <h1 className="text-xl sm:text-2xl font-bold">History</h1>
+            </div>
+            <Badge variant="secondary" className="w-fit">Demo Patient</Badge>
           </div>
         </div>
       </div>
 
       {/* Controls Bar */}
-      <div className="border-b border-border p-4">
+      <div className="border-b border-border px-4 py-4">
         <div className="max-w-7xl mx-auto">
           <ControlsBar
             period={period}
@@ -127,7 +129,7 @@ function HistoryPageContent() {
       </div>
 
       {/* Main Content */}
-      <div className="p-4">
+      <div className="px-4 py-6">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Chart Section */}
           <Card>
@@ -154,11 +156,11 @@ function HistoryPageContent() {
           </Card>
 
           {/* Stats and Events Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             {/* Stats Cards */}
-            <div className="lg:col-span-2">
+            <div className="xl:col-span-2">
               {isLoading ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {Array.from({ length: 4 }).map((_, i) => (
                     <Card key={i}>
                       <CardContent className="p-4">
@@ -175,7 +177,7 @@ function HistoryPageContent() {
             </div>
 
             {/* Events Table */}
-            <div>
+            <div className="order-first xl:order-last">
               {isLoading ? (
                 <Card>
                   <CardHeader>

@@ -128,7 +128,7 @@ export function HistoryDataSection() {
         )}
 
         <div className="space-y-2">
-          <Button type="button" onClick={exportNow} variant="outline">
+          <Button type="button" onClick={exportNow} variant="outline" className="w-full sm:w-auto">
             Export Now
           </Button>
           <p className="text-sm text-muted-foreground">Downloads data for the last visible range from History page.</p>
@@ -139,7 +139,7 @@ export function HistoryDataSection() {
           <AlertDescription>
             <div className="space-y-2">
               <p className="font-medium text-destructive">Danger Zone</p>
-              <Button type="button" onClick={clearHistory} variant="destructive" size="sm">
+              <Button type="button" onClick={clearHistory} variant="destructive" size="sm" className="w-full sm:w-auto">
                 Clear Local History
               </Button>
             </div>
@@ -147,7 +147,7 @@ export function HistoryDataSection() {
         </Alert>
       </div>
 
-      <Button type="submit">Save History Settings</Button>
+      <Button type="submit" className="w-full sm:w-auto">Save History Settings</Button>
     </form>
   )
 }

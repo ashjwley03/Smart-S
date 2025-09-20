@@ -104,7 +104,7 @@ export function AlertsSection() {
           <h4 className="font-medium">Thresholds</h4>
           <div>
             <Label htmlFor="heelHigh">Heel High Pressure (kPa)</Label>
-            <div className="flex items-center space-x-4 mt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2">
               <Slider
                 value={[form.watch("thresholds.heelHigh")]}
                 onValueChange={([value]) => form.setValue("thresholds.heelHigh", value)}
@@ -117,7 +117,7 @@ export function AlertsSection() {
                 type="number"
                 value={form.watch("thresholds.heelHigh")}
                 onChange={(e) => form.setValue("thresholds.heelHigh", Number.parseInt(e.target.value))}
-                className="w-20"
+                className="w-full sm:w-20"
                 min={100}
                 max={600}
                 step={5}
@@ -127,7 +127,7 @@ export function AlertsSection() {
 
           <div>
             <Label htmlFor="ankleHigh">Ankle High Pressure (kPa)</Label>
-            <div className="flex items-center space-x-4 mt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2">
               <Slider
                 value={[form.watch("thresholds.ankleHigh")]}
                 onValueChange={([value]) => form.setValue("thresholds.ankleHigh", value)}
@@ -140,7 +140,7 @@ export function AlertsSection() {
                 type="number"
                 value={form.watch("thresholds.ankleHigh")}
                 onChange={(e) => form.setValue("thresholds.ankleHigh", Number.parseInt(e.target.value))}
-                className="w-20"
+                className="w-full sm:w-20"
                 min={100}
                 max={600}
                 step={5}
@@ -163,7 +163,7 @@ export function AlertsSection() {
 
         <div className="space-y-2">
           <Label>Quiet Hours (Optional)</Label>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
             <Input
               type="time"
               value={form.watch("quietHours")?.start || ""}
@@ -175,8 +175,10 @@ export function AlertsSection() {
                 })
               }}
               placeholder="Start time"
+              className="w-full sm:w-auto"
             />
-            <span>to</span>
+            <span className="hidden sm:inline">to</span>
+            <span className="text-sm text-muted-foreground sm:hidden">to</span>
             <Input
               type="time"
               value={form.watch("quietHours")?.end || ""}
@@ -188,19 +190,26 @@ export function AlertsSection() {
                 })
               }}
               placeholder="End time"
+              className="w-full sm:w-auto"
             />
-            <Button type="button" variant="outline" size="sm" onClick={() => form.setValue("quietHours", null)}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              onClick={() => form.setValue("quietHours", null)}
+              className="w-full sm:w-auto"
+            >
               Clear
             </Button>
           </div>
         </div>
 
-        <Button type="button" onClick={testAlert} variant="outline">
+        <Button type="button" onClick={testAlert} variant="outline" className="w-full sm:w-auto">
           Test Alert
         </Button>
       </div>
 
-      <Button type="submit">Save Alert Settings</Button>
+      <Button type="submit" className="w-full sm:w-auto">Save Alert Settings</Button>
     </form>
   )
 }

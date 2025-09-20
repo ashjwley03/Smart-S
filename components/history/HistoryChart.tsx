@@ -157,7 +157,7 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
   return (
     <div className="w-full h-96">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={processedData} margin={{ top: 5, right: 30, left: 20, bottom: showBrush ? 60 : 5 }}>
+        <LineChart data={processedData} margin={{ top: 5, right: 10, left: 10, bottom: showBrush ? 60 : 5 }}>
           <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
           <XAxis
             dataKey="tsMs"
