@@ -1,4 +1,6 @@
-export const heelHigh = 300
+import { heelPressureThreshold } from "./heelPressureData"
+
+export const heelHigh = heelPressureThreshold
 export const ankleHigh = 350
 
 export const getThreshold = (region: "heel" | "leftAnkle" | "rightAnkle"): number => {
