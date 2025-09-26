@@ -16,6 +16,8 @@ import type { PressureSample, HistoryQuery } from "@/lib/history/fetchHistory"
 import { applyRollingAverage } from "@/lib/history/rollingAvg"
 import { downsampleLTTB } from "@/lib/history/downsample"
 import { getThreshold } from "@/lib/history/thresholds"
+import { heelPressureThreshold } from "@/lib/history/heelPressureData"
+import { anklePressureThreshold } from "@/lib/history/anklePressureData"
 import { Badge } from "@/components/ui/badge"
 
 interface HistoryChartProps {
@@ -58,9 +60,9 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
       leftAnkle: sample.leftAnkle,
       rightAnkle: sample.rightAnkle,
       anyHigh:
-        sample.heel > getThreshold("heel") ||
-        sample.leftAnkle > getThreshold("leftAnkle") ||
-        sample.rightAnkle > getThreshold("rightAnkle"),
+        sample.heel > heelPressureThreshold || // Using CSV-defined threshold for heel
+        sample.leftAnkle > anklePressureThreshold || // Using CSV-defined threshold for ankle
+        sample.rightAnkle > anklePressureThreshold,
     }))
   }, [data, smoothing])
 
@@ -106,15 +108,22 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
     const leftAnkle = payload.find((p: any) => p.dataKey === "leftAnkle")?.value
     const rightAnkle = payload.find((p: any) => p.dataKey === "rightAnkle")?.value
 
+    // Determine patient position based on heel pressure
+    const patientPosition = heel > 0 ? "Standing" : "Lying down"
+    // This patient is detected on the left side
+    const detectedLeg = "Left"
+    
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
         <p className="text-sm font-medium mb-2">{date.toLocaleString()}</p>
+        <p className="text-xs text-muted-foreground mb-2">Patient position: {patientPosition}</p>
+        <p className="text-xs text-purple-700 font-medium mb-2">Detected leg side: {detectedLeg}</p>
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm text-muted-foreground">Heel:</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{heel} kPa</span>
-              {heel > getThreshold("heel") && (
+              {heel > heelPressureThreshold && (
                 <Badge variant="destructive" className="text-xs">
                   HIGH
                 </Badge>
@@ -125,7 +134,7 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
             <span className="text-sm text-muted-foreground">Left Ankle:</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{leftAnkle} kPa</span>
-              {leftAnkle > getThreshold("leftAnkle") && (
+              {leftAnkle > anklePressureThreshold && (
                 <Badge variant="destructive" className="text-xs">
                   HIGH
                 </Badge>
@@ -136,7 +145,7 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
             <span className="text-sm text-muted-foreground">Right Ankle:</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{rightAnkle} kPa</span>
-              {rightAnkle > getThreshold("rightAnkle") && (
+              {rightAnkle > anklePressureThreshold && (
                 <Badge variant="destructive" className="text-xs">
                   HIGH
                 </Badge>

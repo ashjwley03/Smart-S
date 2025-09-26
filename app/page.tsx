@@ -12,6 +12,8 @@ import { Canvas } from "@react-three/fiber"
 import { OrbitControls, useGLTF } from "@react-three/drei"
 import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
+import { heelPressureData, heelPressureThreshold } from "@/lib/history/heelPressureData"
+import { anklePressureData, anklePressureThreshold } from "@/lib/history/anklePressureData"
 
 function FootModelInner({
   isConnected,
@@ -27,10 +29,12 @@ function FootModelInner({
   const groupRef = useRef<THREE.Group>(null)
   const { scene } = useGLTF("/human_foot_base_mesh.glb")
 
-  const HEEL_END = calibrationSettings.heelEnd
-  const ANKLE_START = calibrationSettings.ankleStart
-  const LATERAL_GAP = calibrationSettings.lateralGap
-  const SWAP_LR = calibrationSettings.swapLeftRight
+  // Calibration constants with corrected values to fix the inverted mapping
+  // The L coordinate is inverted in our model (1 = heel, 0 = toe) - opposite of what we expected
+  const HEEL_START = 0.70  // Heel starts at L > 0.70 (closer to 1)
+  const ANKLE_END = 0.55   // Ankles end at L < 0.55
+  const LATERAL_GAP = 0.15  // Separation between left and right sides
+  const SWAP_LR = calibrationSettings.swapLeftRight // Keep this as is
 
   type MeshEntry = {
     mesh: THREE.Mesh
@@ -130,12 +134,24 @@ function FootModelInner({
 
     const pulse = anyHigh && pulseOnHigh ? 1 + 0.15 * Math.sin(time * 3.0) : 1
 
-    const heelCol = pickColor(pressureData.heel.status, isConnected)
-    const leftCol = pickColor(pressureData.leftAnkle.status, isConnected)
-    const rightCol = pickColor(pressureData.rightAnkle.status, isConnected)
-
+    // Each region has its own color that matches its sensor status
+    // Base colors without pulse effect
+    const baseHeelCol = pickColor(pressureData.heel.status, isConnected)
+    const baseLeftCol = pickColor(pressureData.leftAnkle.status, isConnected)
+    const baseRightCol = pickColor(pressureData.rightAnkle.status, isConnected)
+    
+    // Normal color for ankles and other regions (regardless of heel status)
+    const normalCol = BASE.clone()
+    
+    // Only the heel color is affected by heel pressure status
+    const heelCol = baseHeelCol.clone()
     if (pressureData.heel.status === "High" && pulseOnHigh) heelCol.multiplyScalar(pulse)
+    
+    // Ankle colors are only affected by their own pressure status, not heel
+    const leftCol = baseLeftCol.clone()
     if (pressureData.leftAnkle.status === "High" && pulseOnHigh) leftCol.multiplyScalar(pulse)
+    
+    const rightCol = baseRightCol.clone()
     if (pressureData.rightAnkle.status === "High" && pulseOnHigh) rightCol.multiplyScalar(pulse)
 
     cacheRef.current.forEach(({ mesh, colors, positions, min, size, lenIdx, latIdx }) => {
@@ -167,9 +183,20 @@ function FootModelInner({
         let LR = n[latIdx]
         if (SWAP_LR) LR = 1 - LR
 
-        const isHeel = L < HEEL_END
-        const isRightAnkle = L > ANKLE_START && LR > center + LATERAL_GAP
-        const isLeftAnkle = L > ANKLE_START && LR < center - LATERAL_GAP
+        // L represents position along the length of the foot 
+        // CORRECTED UNDERSTANDING: 0 is toe, 1 is heel (opposite of our initial assumption)
+        // LR represents position across the width of the foot (0 = left, 1 = right)
+        
+        // Heel should be at the back of the foot (L > HEEL_START, closer to 1)
+        const isHeel = L > HEEL_START
+        
+        // Left ankle should be on the left side in the ankle region
+        // Between toe and ankle area, on the left side
+        const isLeftAnkle = L < ANKLE_END && L > 0.3 && LR < center - LATERAL_GAP
+        
+        // Right ankle should be on the right side in the ankle region
+        // Between toe and ankle area, on the right side
+        const isRightAnkle = L < ANKLE_END && L > 0.3 && LR > center + LATERAL_GAP
 
         let out = base
 
@@ -177,28 +204,50 @@ function FootModelInner({
         // if (DEBUG === "gradient") {
         //   out = new THREE.Color(L, LR, 1 - L)
         // } else 
+        // For each region, use its own color regardless of other regions' status
+        // This ensures heel pressure only affects heel coloring, not ankle coloring
         if (isHeel) {
-          out = heelCol
+          out = heelCol  // Heel region uses heel pressure color
         } else if (isRightAnkle) {
-          out = rightCol
+          out = rightCol // Right ankle region uses right ankle color only
         } else if (isLeftAnkle) {
-          out = leftCol
+          out = leftCol  // Left ankle region uses left ankle color only
         } else {
-          const heelInf = Math.max(0, (HEEL_END - L) / HEEL_END)
-          const rInf =
-            Math.max(0, (LR - (center + LATERAL_GAP)) / (1 - (center + LATERAL_GAP))) *
-            Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
-          const lInf =
-            Math.max(0, (center - LATERAL_GAP - LR) / (center - LATERAL_GAP)) *
-            Math.max(0, (L - ANKLE_START) / (1 - ANKLE_START))
-          const total = heelInf + rInf + lInf
-
-          if (total > 1e-5) {
-            const tmp = new THREE.Color(0, 0, 0)
-            tmp.add(heelCol.clone().multiplyScalar(heelInf / total))
-            tmp.add(rightCol.clone().multiplyScalar(rInf / total))
-            tmp.add(leftCol.clone().multiplyScalar(lInf / total))
-            out = tmp
+          // Calculate influence of each region for smooth transitions
+          // But we'll keep each sensor's influence isolated to its own region
+          
+          // Heel influence: stronger at back of foot (L closer to 1)
+          const heelInf = Math.max(0, (L - 0.6) / 0.4) // Gradient from 0.6 to 1.0
+          
+          // Left ankle influence: stronger in left-middle area
+          const lInf = Math.max(0, (center - LATERAL_GAP - LR) / (center - LATERAL_GAP)) * 
+                      Math.max(0, 1 - Math.abs((L - 0.4) / 0.3)) // Centered at L=0.4
+          
+          // Right ankle influence: stronger in right-middle area
+          const rInf = Math.max(0, (LR - (center + LATERAL_GAP)) / (1 - (center + LATERAL_GAP))) * 
+                      Math.max(0, 1 - Math.abs((L - 0.4) / 0.3)) // Centered at L=0.4
+          
+          // Front part of foot has minimal influence from sensors - this is normal
+          // since there are no pressure sensors in the toe area
+          
+          // Calculate which region has the most influence at this point
+          const maxInf = Math.max(heelInf, Math.max(lInf, rInf))
+          
+          if (maxInf > 0.1) { // Threshold for any influence
+            if (heelInf >= lInf && heelInf >= rInf && L > 0.55) {
+              // Heel region dominant - use heel color
+              const strength = Math.min(1, heelInf * 2)
+              out.lerp(heelCol, strength)
+            } else if (lInf >= heelInf && lInf >= rInf && LR < center) {
+              // Left ankle region dominant - use left ankle color
+              const strength = Math.min(1, lInf * 2)
+              out.lerp(leftCol, strength)
+            } else if (rInf >= heelInf && rInf >= lInf && LR > center) {
+              // Right ankle region dominant - use right ankle color
+              const strength = Math.min(1, rInf * 2)
+              out.lerp(rightCol, strength)
+            }
+            // Otherwise use the base color
           }
         }
 
@@ -305,6 +354,14 @@ export default function FootPressureMonitor() {
     leftAnkle: { value: 0, status: "No Data" },
     rightAnkle: { value: 0, status: "No Data" },
   })
+  const [patientPosition, setPatientPosition] = useState("Unknown")
+  // Patient leg information - detected side
+  const [detectedLeg, setDetectedLeg] = useState("Left")
+  // Start at a position where we'll see cycles of standing and lying down
+  const [dataIndex, setDataIndex] = useState(900)
+  
+  // Step size for data cycling (smaller value = slower cycling through data points)
+  const dataStep = 5
 
   useEffect(() => {
     if (!isConnected) {
@@ -313,33 +370,92 @@ export default function FootPressureMonitor() {
         leftAnkle: { value: 0, status: "No Data" },
         rightAnkle: { value: 0, status: "No Data" },
       })
+      setPatientPosition("Unknown")
       return
     }
 
+    // Initialize with heel value at the current index (which is not at the beginning)
+    const initialHeelValue = heelPressureData[dataIndex].value
+    const isStanding = initialHeelValue > 0
+    
+    // Initialize ankle values
+    let initialLeftAnkleValue = 0
+    let initialRightAnkleValue = 0
+    
+    // If patient is lying down (heel = 0), use ankle pressure from CSV
+    if (initialHeelValue === 0) {
+      // Get ankle pressure from CSV for left ankle
+      const ankleValue = anklePressureData[dataIndex % anklePressureData.length].value
+      
+      // Make sure we have a non-zero value
+      initialLeftAnkleValue = ankleValue > 0 ? ankleValue : 550 // Default to 550 if CSV happens to have 0
+      
+      // Right ankle always 0 since we're only detecting left leg
+      initialRightAnkleValue = 0
+    }
+    
     setCurrentReadings({
-      heel: { value: 201.5, status: "High" },
-      leftAnkle: { value: 367.4, status: "Normal" },
-      rightAnkle: { value: 407.2, status: "High" },
+      heel: { 
+        value: initialHeelValue, 
+        status: initialHeelValue > heelPressureThreshold ? "High" : initialHeelValue > 0 ? "Normal" : "Low" 
+      },
+      leftAnkle: { 
+        value: initialLeftAnkleValue, 
+        status: initialLeftAnkleValue > anklePressureThreshold ? "High" : initialLeftAnkleValue > 0 ? "Normal" : "Low" 
+      },
+      rightAnkle: { 
+        value: initialRightAnkleValue, 
+        status: initialRightAnkleValue > anklePressureThreshold ? "High" : initialRightAnkleValue > 0 ? "Normal" : "Low" 
+      },
     })
+    
+    setPatientPosition(isStanding ? "Standing" : "Lying down")
 
     const interval = setInterval(() => {
-      const heelThreshold = getHeelThreshold(settings)
+      const heelThreshold = heelPressureThreshold
       const ankleThreshold = getAnkleThreshold(settings)
-
-      setCurrentReadings((prev) => ({
-        heel: {
-          value: Math.round((prev.heel.value + (Math.random() - 0.5) * 10) * 10) / 10,
-          status: prev.heel.value > heelThreshold ? "High" : prev.heel.value > 200 ? "Normal" : "Low",
-        },
-        leftAnkle: {
-          value: Math.round((prev.leftAnkle.value + (Math.random() - 0.5) * 15) * 10) / 10,
-          status: prev.leftAnkle.value > ankleThreshold ? "High" : prev.leftAnkle.value > 250 ? "Normal" : "Low",
-        },
-        rightAnkle: {
-          value: Math.round((prev.rightAnkle.value + (Math.random() - 0.5) * 12) * 10) / 10,
-          status: prev.rightAnkle.value > ankleThreshold ? "High" : prev.rightAnkle.value > 200 ? "Normal" : "Low",
-        },
-      }))
+      
+      setDataIndex((prevIndex) => {
+        // Loop through the heel pressure data using our step size for faster cycling
+        const newIndex = (prevIndex + dataStep) % heelPressureData.length
+        const heelValue = heelPressureData[newIndex].value
+        const isPatientStanding = heelValue > 0
+        
+        // When heel pressure is 0 (patient is lying down), left ankle pressure comes from CSV
+        // When heel pressure > 0 (patient is standing), both ankles have 0 pressure
+        let leftAnkleValue = 0
+        let rightAnkleValue = 0
+        
+        if (heelValue === 0) { // Patient is lying down
+          // Always use ankle pressure from CSV for left ankle
+          const ankleValue = anklePressureData[newIndex % anklePressureData.length].value
+          
+          // Make sure we have a non-zero value for lying down
+          leftAnkleValue = ankleValue > 0 ? ankleValue : 550 // Fallback to 550 if CSV has 0
+          
+          // Right ankle always 0 since we're only detecting left leg
+          rightAnkleValue = 0
+        }
+        
+        setPatientPosition(isPatientStanding ? "Standing" : "Lying down")
+        
+        setCurrentReadings({
+          heel: {
+            value: heelValue,
+            status: heelValue > heelThreshold ? "High" : heelValue > 0 ? "Normal" : "Low",
+          },
+          leftAnkle: {
+            value: leftAnkleValue,
+            status: leftAnkleValue > ankleThreshold ? "High" : leftAnkleValue > 0 ? "Normal" : "Low",
+          },
+          rightAnkle: {
+            value: rightAnkleValue,
+            status: rightAnkleValue > ankleThreshold ? "High" : rightAnkleValue > 0 ? "Normal" : "Low",
+          },
+        })
+        
+        return newIndex
+      })
     }, settings.device.sampleIntervalMs)
 
     return () => clearInterval(interval)
@@ -487,6 +603,22 @@ export default function FootPressureMonitor() {
           <Card>
             <CardContent className="p-6">
               <h2 className="text-lg font-semibold text-foreground mb-4">Current Readings</h2>
+              <div className="flex justify-center gap-3 mb-4">
+                <Badge 
+                  variant="outline" 
+                  className={`px-3 py-1 ${patientPosition === "Standing" ? "bg-green-50 text-green-700 border-green-300" : 
+                    patientPosition === "Lying down" ? "bg-blue-50 text-blue-700 border-blue-300" : 
+                    "bg-gray-100 text-gray-500 border-gray-300"}`}
+                >
+                  Patient position: {patientPosition}
+                </Badge>
+                <Badge 
+                  variant="outline" 
+                  className="px-3 py-1 bg-purple-50 text-purple-700 border-purple-300"
+                >
+                  Detected leg side: {detectedLeg}
+                </Badge>
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
                   <div className={`text-2xl font-bold ${getReadingColor(currentReadings.heel.status)}`}>
