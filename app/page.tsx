@@ -12,6 +12,7 @@ import { Canvas } from "@react-three/fiber"
 import { OrbitControls, useGLTF } from "@react-three/drei"
 import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
+import { heelPressureData, heelPressureThreshold } from "@/lib/history/heelPressureData"
 
 function FootModelInner({
   isConnected,
@@ -305,6 +306,8 @@ export default function FootPressureMonitor() {
     leftAnkle: { value: 0, status: "No Data" },
     rightAnkle: { value: 0, status: "No Data" },
   })
+  const [patientPosition, setPatientPosition] = useState("Unknown")
+  const [dataIndex, setDataIndex] = useState(0)
 
   useEffect(() => {
     if (!isConnected) {
@@ -313,33 +316,68 @@ export default function FootPressureMonitor() {
         leftAnkle: { value: 0, status: "No Data" },
         rightAnkle: { value: 0, status: "No Data" },
       })
+      setPatientPosition("Unknown")
       return
     }
 
+    // Initialize with first value from heel pressure data
+    const initialHeelValue = heelPressureData[0].value
+    const isStanding = initialHeelValue > 0
+    
     setCurrentReadings({
-      heel: { value: 201.5, status: "High" },
-      leftAnkle: { value: 367.4, status: "Normal" },
-      rightAnkle: { value: 407.2, status: "High" },
+      heel: { 
+        value: initialHeelValue, 
+        status: initialHeelValue > heelPressureThreshold ? "High" : initialHeelValue > 0 ? "Normal" : "Low" 
+      },
+      leftAnkle: { 
+        value: isStanding ? 0 : 250.5, 
+        status: isStanding ? "Low" : "Normal" 
+      },
+      rightAnkle: { 
+        value: isStanding ? 0 : 270.3, 
+        status: isStanding ? "Low" : "Normal" 
+      },
     })
+    
+    setPatientPosition(isStanding ? "Standing" : "Lying down")
 
     const interval = setInterval(() => {
-      const heelThreshold = getHeelThreshold(settings)
+      const heelThreshold = heelPressureThreshold
       const ankleThreshold = getAnkleThreshold(settings)
-
-      setCurrentReadings((prev) => ({
-        heel: {
-          value: Math.round((prev.heel.value + (Math.random() - 0.5) * 10) * 10) / 10,
-          status: prev.heel.value > heelThreshold ? "High" : prev.heel.value > 200 ? "Normal" : "Low",
-        },
-        leftAnkle: {
-          value: Math.round((prev.leftAnkle.value + (Math.random() - 0.5) * 15) * 10) / 10,
-          status: prev.leftAnkle.value > ankleThreshold ? "High" : prev.leftAnkle.value > 250 ? "Normal" : "Low",
-        },
-        rightAnkle: {
-          value: Math.round((prev.rightAnkle.value + (Math.random() - 0.5) * 12) * 10) / 10,
-          status: prev.rightAnkle.value > ankleThreshold ? "High" : prev.rightAnkle.value > 200 ? "Normal" : "Low",
-        },
-      }))
+      
+      setDataIndex((prevIndex) => {
+        // Loop through the heel pressure data
+        const newIndex = (prevIndex + 1) % heelPressureData.length
+        const heelValue = heelPressureData[newIndex].value
+        const isPatientStanding = heelValue > 0
+        
+        setPatientPosition(isPatientStanding ? "Standing" : "Lying down")
+        
+        setCurrentReadings({
+          heel: {
+            value: heelValue,
+            status: heelValue > heelThreshold ? "High" : heelValue > 0 ? "Normal" : "Low",
+          },
+          leftAnkle: {
+            // Generate ankle data only when patient is lying down
+            value: isPatientStanding ? 0 : Math.round((250 + (Math.random() - 0.5) * 15) * 10) / 10,
+            status: isPatientStanding ? "Low" : (() => {
+              const newValue = isPatientStanding ? 0 : Math.round((250 + (Math.random() - 0.5) * 15) * 10) / 10;
+              return newValue > ankleThreshold ? "High" : "Normal";
+            })(),
+          },
+          rightAnkle: {
+            // Generate ankle data only when patient is lying down
+            value: isPatientStanding ? 0 : Math.round((270 + (Math.random() - 0.5) * 12) * 10) / 10,
+            status: isPatientStanding ? "Low" : (() => {
+              const newValue = isPatientStanding ? 0 : Math.round((270 + (Math.random() - 0.5) * 12) * 10) / 10;
+              return newValue > ankleThreshold ? "High" : "Normal";
+            })(),
+          },
+        })
+        
+        return newIndex
+      })
     }, settings.device.sampleIntervalMs)
 
     return () => clearInterval(interval)
@@ -487,6 +525,16 @@ export default function FootPressureMonitor() {
           <Card>
             <CardContent className="p-6">
               <h2 className="text-lg font-semibold text-foreground mb-4">Current Readings</h2>
+              <div className="flex justify-center mb-4">
+                <Badge 
+                  variant="outline" 
+                  className={`px-3 py-1 ${patientPosition === "Standing" ? "bg-green-50 text-green-700 border-green-300" : 
+                    patientPosition === "Lying down" ? "bg-blue-50 text-blue-700 border-blue-300" : 
+                    "bg-gray-100 text-gray-500 border-gray-300"}`}
+                >
+                  Patient position: {patientPosition}
+                </Badge>
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
                   <div className={`text-2xl font-bold ${getReadingColor(currentReadings.heel.status)}`}>
