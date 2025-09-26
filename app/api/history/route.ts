@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { heelPressureData, heelPressureThreshold } from "@/lib/history/heelPressureData"
 
 type Region = "heel" | "leftAnkle" | "rightAnkle"
 
@@ -32,7 +31,7 @@ type HistoryResponse = {
 }
 
 // Thresholds
-const heelHigh = heelPressureThreshold // Use the threshold from CSV data
+const heelHigh = 300
 const ankleHigh = 350
 
 // Seeded random number generator for deterministic data
@@ -66,39 +65,38 @@ function generateMockData(period: HistoryQuery["period"], interval: string): Pre
   const seed = hashString(`${period}-${interval}`)
   const rng = mulberry32(seed)
 
-  // Total number of samples we need to generate
-  const totalSamples = Math.ceil(periodMs / intervalMs)
-  
-  // Use the CSV data for heel readings, looping as needed
-  const heelDataLength = heelPressureData.length
-  
-  for (let i = 0; i < totalSamples; i++) {
-    const timestamp = new Date(now.getTime() - periodMs + i * intervalMs)
-    
-    // Get the heel pressure from our CSV data, cycling through it as needed
-    const heelIndex = i % heelDataLength
-    const heelValue = heelPressureData[heelIndex].value
-    
-    // Generate ankle pressure data based on business rules:
-    // When patient is standing (heel pressure > 0), ankles should have no pressure
-    // When patient is lying down (heel pressure = 0), ankles should have pressure
-    let leftAnkle = 0
-    let rightAnkle = 0
-    
-    if (heelValue === 0) {
-      // Patient is likely lying down, generate ankle pressure
-      const hour = timestamp.getHours()
-      const timeOfDayFactor = 0.8 + 0.4 * Math.sin(((hour - 6) * Math.PI) / 12)
-      
-      leftAnkle = Math.round((200 + 80 * timeOfDayFactor + 25 * (rng() - 0.5)) * 10) / 10
-      rightAnkle = Math.round((190 + 75 * timeOfDayFactor + 25 * (rng() - 0.5)) * 10) / 10
+  for (let t = now.getTime() - periodMs; t <= now.getTime(); t += intervalMs) {
+    const timestamp = new Date(t)
+    const hour = timestamp.getHours()
+
+    // Base pressure with circadian variation
+    const timeOfDayFactor = 0.8 + 0.4 * Math.sin(((hour - 6) * Math.PI) / 12)
+
+    // Generate baseline pressures with regional variation
+    const heelBase = 180 + 60 * timeOfDayFactor + 20 * (rng() - 0.5)
+    const leftAnkleBase = 200 + 80 * timeOfDayFactor + 25 * (rng() - 0.5)
+    const rightAnkleBase = 190 + 75 * timeOfDayFactor + 25 * (rng() - 0.5)
+
+    // Add occasional spikes (2-6 times per day)
+    const spikeChance = 0.002 // ~0.2% chance per sample
+    let heel = heelBase
+    let leftAnkle = leftAnkleBase
+    let rightAnkle = rightAnkleBase
+
+    if (rng() < spikeChance) {
+      const spikeRegion = Math.floor(rng() * 3)
+      const spikeIntensity = 1.5 + 0.8 * rng() // 1.5x to 2.3x multiplier
+
+      if (spikeRegion === 0) heel *= spikeIntensity
+      else if (spikeRegion === 1) leftAnkle *= spikeIntensity
+      else rightAnkle *= spikeIntensity
     }
 
     samples.push({
       ts: timestamp.toISOString(),
-      heel: heelValue,
-      leftAnkle,
-      rightAnkle,
+      heel: Math.round(Math.max(0, heel) * 10) / 10,
+      leftAnkle: Math.round(Math.max(0, leftAnkle) * 10) / 10,
+      rightAnkle: Math.round(Math.max(0, rightAnkle) * 10) / 10,
     })
   }
 
@@ -190,11 +188,9 @@ export async function GET(request: NextRequest) {
     const defaultInterval = period === "3d" ? "5m" : period === "7d" ? "5m" : "1h"
     const interval = requestedInterval || defaultInterval
 
-    // Generate data using heel pressure from CSV and synthetic ankle data
+    // Generate mock data
     const data = generateMockData(period, interval)
     const stats = computeStats(data, period)
-
-    console.log(`Generated ${data.length} data points with heel threshold: ${heelHigh}`);
 
     const response: HistoryResponse = {
       data,

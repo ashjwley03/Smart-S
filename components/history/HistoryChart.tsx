@@ -16,7 +16,6 @@ import type { PressureSample, HistoryQuery } from "@/lib/history/fetchHistory"
 import { applyRollingAverage } from "@/lib/history/rollingAvg"
 import { downsampleLTTB } from "@/lib/history/downsample"
 import { getThreshold } from "@/lib/history/thresholds"
-import { heelPressureThreshold } from "@/lib/history/heelPressureData"
 import { Badge } from "@/components/ui/badge"
 
 interface HistoryChartProps {
@@ -51,19 +50,15 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
       processed = downsampleLTTB(processed, 1500)
     }
 
-    // Sort data by timestamp to ensure continuous line rendering
-    processed.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
-    
     // Convert to chart format with numeric timestamps
     return processed.map((sample) => ({
       ts: sample.ts,
       tsMs: new Date(sample.ts).getTime(),
-      // Ensure all values are numbers (non-null, non-undefined)
-      heel: typeof sample.heel === 'number' ? sample.heel : 0,
-      leftAnkle: typeof sample.leftAnkle === 'number' ? sample.leftAnkle : 0,
-      rightAnkle: typeof sample.rightAnkle === 'number' ? sample.rightAnkle : 0,
+      heel: sample.heel,
+      leftAnkle: sample.leftAnkle,
+      rightAnkle: sample.rightAnkle,
       anyHigh:
-        sample.heel > heelPressureThreshold || // Using the CSV-defined threshold for heel
+        sample.heel > getThreshold("heel") ||
         sample.leftAnkle > getThreshold("leftAnkle") ||
         sample.rightAnkle > getThreshold("rightAnkle"),
     }))
@@ -75,15 +70,10 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
     let spanStart = 0
 
     processedData.forEach((point, index) => {
-      // Check if any measurement is above its respective threshold
-      const isHigh = point.heel > heelPressureThreshold || 
-                    point.leftAnkle > getThreshold("leftAnkle") || 
-                    point.rightAnkle > getThreshold("rightAnkle");
-      
-      if (isHigh && !inSpan) {
+      if (point.anyHigh && !inSpan) {
         inSpan = true
         spanStart = point.tsMs
-      } else if (!isHigh && inSpan) {
+      } else if (!point.anyHigh && inSpan) {
         inSpan = false
         spans.push({ start: spanStart, end: processedData[index - 1].tsMs })
       }
@@ -116,19 +106,15 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
     const leftAnkle = payload.find((p: any) => p.dataKey === "leftAnkle")?.value
     const rightAnkle = payload.find((p: any) => p.dataKey === "rightAnkle")?.value
 
-    // Determine patient position based on heel vs ankle data
-    const patientPosition = heel > 0 ? "Standing" : "Lying down";
-
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
         <p className="text-sm font-medium mb-2">{date.toLocaleString()}</p>
-        <p className="text-xs text-muted-foreground mb-2">Patient position: {patientPosition}</p>
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm text-muted-foreground">Heel:</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{heel} kPa</span>
-              {heel > heelPressureThreshold && (
+              {heel > getThreshold("heel") && (
                 <Badge variant="destructive" className="text-xs">
                   HIGH
                 </Badge>
@@ -191,7 +177,7 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
 
           {/* Data lines */}
           <Line
-            type="natural"
+            type="monotone"
             dataKey="heel"
             stroke="hsl(var(--destructive))"
             strokeWidth={2}
@@ -200,12 +186,9 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
             connectNulls={true}
             isAnimationActive={false}
             name="Heel"
-            // Ensure points are connected
-            strokeLinejoin="round"
-            strokeLinecap="round"
           />
           <Line
-            type="natural"
+            type="monotone"
             dataKey="leftAnkle"
             stroke="hsl(var(--primary))"
             strokeWidth={2}
@@ -214,12 +197,9 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
             connectNulls={true}
             isAnimationActive={false}
             name="Left Ankle"
-            // Ensure points are connected
-            strokeLinejoin="round"
-            strokeLinecap="round"
           />
           <Line
-            type="natural"
+            type="monotone"
             dataKey="rightAnkle"
             stroke="hsl(var(--muted-foreground))"
             strokeWidth={2}
@@ -228,9 +208,6 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
             connectNulls={true}
             isAnimationActive={false}
             name="Right Ankle"
-            // Ensure points are connected
-            strokeLinejoin="round"
-            strokeLinecap="round"
           />
 
           {/* Brush for 7d/30d periods */}
