@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { heelPressureData, heelPressureThreshold } from "@/lib/history/heelPressureData"
+import { anklePressureData, anklePressureThreshold } from "@/lib/history/anklePressureData"
 
 type Region = "heel" | "leftAnkle" | "rightAnkle"
 
@@ -31,9 +32,9 @@ type HistoryResponse = {
   meta: { period: HistoryQuery["period"]; interval: Required<HistoryQuery>["interval"] }
 }
 
-// Using CSV-based threshold for heel pressure
+// Using CSV-based thresholds for heel and ankle pressure
 const heelHigh = heelPressureThreshold
-const ankleHigh = 350 // Keep the ankle threshold as is
+const ankleHigh = anklePressureThreshold
 
 // Seeded random number generator for deterministic data
 function mulberry32(a: number) {
@@ -90,23 +91,23 @@ function generateMockData(period: HistoryQuery["period"], interval: string): Pre
     // - When heel pressure = 0 (patient lying down): generate ankle pressure
     const isStanding = heel > 0
     
-    // Generate ankle pressure data with some randomization
+    // Generate ankle pressure data with left ankle from CSV and right ankle = 0
+    // (Since we're only detecting the left leg for this patient)
     let leftAnkle: number
     let rightAnkle: number
     
     if (isStanding) {
-      // Patient is standing, ankles have no pressure
+      // Patient is standing, both ankles have no pressure
       leftAnkle = 0
       rightAnkle = 0
     } else {
-      // Patient is lying down, generate ankle pressure
-      // Use seedValues to get deterministic but random-looking values
-      const seedIndex = i % seedValues.length
-      const leftSeed = seedValues[seedIndex]
-      const rightSeed = seedValues[(seedIndex + 500) % seedValues.length]
+      // Patient is lying down, use CSV for left ankle and zero for right ankle
+      // (This simulates a left side detection for this patient)
+      const ankleIndex = i % anklePressureData.length
+      leftAnkle = anklePressureData[ankleIndex].value
       
-      leftAnkle = Math.round((250 + (leftSeed - 0.5) * 150) * 10) / 10
-      rightAnkle = Math.round((270 + (rightSeed - 0.5) * 150) * 10) / 10
+      // Right ankle has no pressure since we're only detecting the left leg
+      rightAnkle = 0
     }
 
     samples.push({

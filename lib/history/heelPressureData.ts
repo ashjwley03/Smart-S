@@ -17,14 +17,22 @@ const compressedData: [number, number][] = [
   [185, 2], [188, 1], [192, 1], [198, 1], [199, 1], [198, 1], [195, 1],
   [191, 1], [189, 1], [187, 1], [189, 1], [187, 1], [186, 1], [184, 1],
   [182, 1],
-  // More varied heel pressure values to better represent the CSV data
+  // Standing position (heel pressure > 0) - First section
   [165, 100], [172, 100], [178, 100], [183, 100], [190, 100], 
-  [195, 100], [185, 100], [175, 100], [168, 100], [173, 100],
-  [180, 100], [187, 100], [193, 100], [189, 100], [176, 100],
-  [169, 100], [171, 63],
+  [195, 50], [185, 50], [175, 50], [168, 50],
+  // Lying down (heel pressure = 0) - First section
+  [0, 300], 
+  // Standing position again - Second section
+  [173, 50], [180, 50], [187, 50], [193, 50], [189, 50], [176, 50],
+  // Lying down again - Second section
+  [0, 300],
+  // Standing position - Third section
+  [169, 50], [171, 50], [185, 50], [180, 50],
+  // Declining pressure as patient transitions to lying down
   [159, 1], [151, 1], [141, 1], [130, 1], [115, 1], [96, 1], [86, 1],
   [70, 1], [51, 1], [39, 1], [27, 1], [17, 1], [10, 1], [6, 1], [2, 1],
-  [0, 900] // The rest are zeros
+  // Lying down - Final section
+  [0, 300]
 ];
 
 // Expand the compressed data for use in the application
