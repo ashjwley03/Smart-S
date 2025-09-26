@@ -64,51 +64,51 @@ function generateMockData(period: HistoryQuery["period"], interval: string): Pre
   const intervalMs = interval === "1m" ? 60 * 1000 : interval === "5m" ? 5 * 60 * 1000 : 60 * 60 * 1000
 
   const samples: PressureSample[] = []
-  const seed = hashString(`${period}-${interval}`)
-  const rng = mulberry32(seed)
 
   // Calculate how many samples we need
   const totalSamples = Math.ceil(periodMs / intervalMs)
   
-  // Get the CSV heel pressure data
+  // Get the CSV data lengths
   const heelDataLength = heelPressureData.length
+  const ankleDataLength = anklePressureData.length
   
-  // Make sure we have enough seed values for random number generation
-  const seedValues: number[] = []
-  for (let i = 0; i < 1000; i++) {
-    seedValues.push(rng())
-  }
-  
+  // Start at a position where we'll see cycles of standing and lying down
+  // Starting at position 800 to get past initial zeros and into the varied data
+  const startIndex = 800
+
   for (let i = 0; i < totalSamples; i++) {
     const timestamp = new Date(now.getTime() - periodMs + i * intervalMs)
     
     // Get heel pressure from CSV data (using modulo to loop through the data)
-    const heelIndex = i % heelDataLength
+    // We offset the starting index to get interesting data
+    const heelIndex = (startIndex + i) % heelDataLength
     const heel = heelPressureData[heelIndex].value
     
     // Generate ankle pressure based on heel pressure, following the business rule:
     // - When heel pressure > 0 (patient standing): ankle pressure = 0
-    // - When heel pressure = 0 (patient lying down): generate ankle pressure
-    const isStanding = heel > 0
+    // - When heel pressure = 0 (patient lying down): left ankle pressure from CSV, right ankle = 0
     
-    // Generate ankle pressure data with left ankle from CSV and right ankle = 0
-    // (Since we're only detecting the left leg for this patient)
-    let leftAnkle: number
-    let rightAnkle: number
+    // Always set initial values to 0
+    let leftAnkle: number = 0
+    let rightAnkle: number = 0
     
-    if (isStanding) {
-      // Patient is standing, both ankles have no pressure
-      leftAnkle = 0
-      rightAnkle = 0
-    } else {
-      // Patient is lying down, use CSV for left ankle and zero for right ankle
-      // (This simulates a left side detection for this patient)
-      const ankleIndex = i % anklePressureData.length
-      leftAnkle = anklePressureData[ankleIndex].value
+    // When heel pressure is 0 (patient is lying down), use the ankle pressure data
+    if (heel === 0) {
+      // Get ankle pressure from CSV (ensure we're getting non-zero values for lying down)
+      // Using a different offset to ensure we get varied values
+      const ankleIndex = (startIndex + i * 2) % ankleDataLength  // Different multiplier for variety
       
-      // Right ankle has no pressure since we're only detecting the left leg
+      // Get the ankle pressure value and ensure it's non-zero
+      // If the CSV happens to have a 0 at this position, use a default value
+      const ankleValue = anklePressureData[ankleIndex].value || 550
+      
+      // Set left ankle pressure to the CSV value
+      leftAnkle = ankleValue
+      
+      // Right ankle always 0 since we're only tracking left leg
       rightAnkle = 0
     }
+    // When heel pressure > 0 (standing), both ankle values remain 0
 
     samples.push({
       ts: timestamp.toISOString(),

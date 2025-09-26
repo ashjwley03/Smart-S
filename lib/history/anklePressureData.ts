@@ -9,20 +9,20 @@ const compressedAnkleData: [number, number][] = [
   // When heel pressure > 0 (patient standing), ankle pressure is 0
   [0, 800],
   
-  // First lying down period - ankle pressure > 0
-  [320, 60], [345, 60], [352, 60], [365, 60], [340, 60],
+  // First lying down period - ankle pressure > 0 (including some high values)
+  [420, 30], [545, 30], [652, 30], [680, 30], [595, 30], [540, 30],
   
   // Second standing period - ankle pressure = 0
   [0, 300],
   
-  // Second lying down period - ankle pressure > 0
-  [330, 60], [347, 60], [362, 60], [355, 60], [338, 60],
+  // Second lying down period - ankle pressure > 0 (including some high values)
+  [530, 30], [547, 30], [662, 30], [675, 30], [655, 30], [538, 30],
   
   // Third standing period - ankle pressure = 0
   [0, 300],
   
-  // After heel transitions to zero (final lying down) - ankle pressure > 0
-  [342, 60], [357, 60], [348, 60], [339, 60], [335, 60], [370, 60]
+  // After heel transitions to zero (final lying down) - ankle pressure > 0 (including some high values)
+  [542, 20], [557, 20], [648, 20], [639, 20], [685, 20], [670, 20], [700, 20], [660, 20]
 ];
 
 // Expand the compressed data for use in the application

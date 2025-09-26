@@ -378,11 +378,21 @@ export default function FootPressureMonitor() {
     const initialHeelValue = heelPressureData[dataIndex].value
     const isStanding = initialHeelValue > 0
     
-    // Get left ankle pressure value from CSV
-    const initialLeftAnkleValue = isStanding ? 0 : anklePressureData[dataIndex % anklePressureData.length].value
+    // Initialize ankle values
+    let initialLeftAnkleValue = 0
+    let initialRightAnkleValue = 0
     
-    // Right ankle should have no pressure when left ankle has pressure
-    const initialRightAnkleValue = (isStanding || initialLeftAnkleValue > 0) ? 0 : Math.round((150 + Math.random() * 50) * 10) / 10
+    // If patient is lying down (heel = 0), use ankle pressure from CSV
+    if (initialHeelValue === 0) {
+      // Get ankle pressure from CSV for left ankle
+      const ankleValue = anklePressureData[dataIndex % anklePressureData.length].value
+      
+      // Make sure we have a non-zero value
+      initialLeftAnkleValue = ankleValue > 0 ? ankleValue : 550 // Default to 550 if CSV happens to have 0
+      
+      // Right ankle always 0 since we're only detecting left leg
+      initialRightAnkleValue = 0
+    }
     
     setCurrentReadings({
       heel: { 
@@ -411,13 +421,21 @@ export default function FootPressureMonitor() {
         const heelValue = heelPressureData[newIndex].value
         const isPatientStanding = heelValue > 0
         
-        // Get left ankle pressure value from CSV (only when patient is lying down)
-        const leftAnkleValue = isPatientStanding ? 0 : anklePressureData[newIndex % anklePressureData.length].value
+        // When heel pressure is 0 (patient is lying down), left ankle pressure comes from CSV
+        // When heel pressure > 0 (patient is standing), both ankles have 0 pressure
+        let leftAnkleValue = 0
+        let rightAnkleValue = 0
         
-        // Right ankle should have no pressure when left ankle has pressure
-        // Only generate right ankle pressure when patient is lying down AND left ankle has no pressure
-        const rightAnkleValue = (isPatientStanding || leftAnkleValue > 0) ? 0 : 
-          Math.round((150 + Math.random() * 50) * 10) / 10
+        if (heelValue === 0) { // Patient is lying down
+          // Always use ankle pressure from CSV for left ankle
+          const ankleValue = anklePressureData[newIndex % anklePressureData.length].value
+          
+          // Make sure we have a non-zero value for lying down
+          leftAnkleValue = ankleValue > 0 ? ankleValue : 550 // Fallback to 550 if CSV has 0
+          
+          // Right ankle always 0 since we're only detecting left leg
+          rightAnkleValue = 0
+        }
         
         setPatientPosition(isPatientStanding ? "Standing" : "Lying down")
         
