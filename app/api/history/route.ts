@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { heelPressureData, heelPressureThreshold } from "@/lib/history/heelPressureData"
 
 type Region = "heel" | "leftAnkle" | "rightAnkle"
 
@@ -30,9 +31,9 @@ type HistoryResponse = {
   meta: { period: HistoryQuery["period"]; interval: Required<HistoryQuery>["interval"] }
 }
 
-// Thresholds
-const heelHigh = 300
-const ankleHigh = 350
+// Using CSV-based threshold for heel pressure
+const heelHigh = heelPressureThreshold
+const ankleHigh = 350 // Keep the ankle threshold as is
 
 // Seeded random number generator for deterministic data
 function mulberry32(a: number) {
@@ -65,38 +66,54 @@ function generateMockData(period: HistoryQuery["period"], interval: string): Pre
   const seed = hashString(`${period}-${interval}`)
   const rng = mulberry32(seed)
 
-  for (let t = now.getTime() - periodMs; t <= now.getTime(); t += intervalMs) {
-    const timestamp = new Date(t)
-    const hour = timestamp.getHours()
-
-    // Base pressure with circadian variation
-    const timeOfDayFactor = 0.8 + 0.4 * Math.sin(((hour - 6) * Math.PI) / 12)
-
-    // Generate baseline pressures with regional variation
-    const heelBase = 180 + 60 * timeOfDayFactor + 20 * (rng() - 0.5)
-    const leftAnkleBase = 200 + 80 * timeOfDayFactor + 25 * (rng() - 0.5)
-    const rightAnkleBase = 190 + 75 * timeOfDayFactor + 25 * (rng() - 0.5)
-
-    // Add occasional spikes (2-6 times per day)
-    const spikeChance = 0.002 // ~0.2% chance per sample
-    let heel = heelBase
-    let leftAnkle = leftAnkleBase
-    let rightAnkle = rightAnkleBase
-
-    if (rng() < spikeChance) {
-      const spikeRegion = Math.floor(rng() * 3)
-      const spikeIntensity = 1.5 + 0.8 * rng() // 1.5x to 2.3x multiplier
-
-      if (spikeRegion === 0) heel *= spikeIntensity
-      else if (spikeRegion === 1) leftAnkle *= spikeIntensity
-      else rightAnkle *= spikeIntensity
+  // Calculate how many samples we need
+  const totalSamples = Math.ceil(periodMs / intervalMs)
+  
+  // Get the CSV heel pressure data
+  const heelDataLength = heelPressureData.length
+  
+  // Make sure we have enough seed values for random number generation
+  const seedValues: number[] = []
+  for (let i = 0; i < 1000; i++) {
+    seedValues.push(rng())
+  }
+  
+  for (let i = 0; i < totalSamples; i++) {
+    const timestamp = new Date(now.getTime() - periodMs + i * intervalMs)
+    
+    // Get heel pressure from CSV data (using modulo to loop through the data)
+    const heelIndex = i % heelDataLength
+    const heel = heelPressureData[heelIndex].value
+    
+    // Generate ankle pressure based on heel pressure, following the business rule:
+    // - When heel pressure > 0 (patient standing): ankle pressure = 0
+    // - When heel pressure = 0 (patient lying down): generate ankle pressure
+    const isStanding = heel > 0
+    
+    // Generate ankle pressure data with some randomization
+    let leftAnkle: number
+    let rightAnkle: number
+    
+    if (isStanding) {
+      // Patient is standing, ankles have no pressure
+      leftAnkle = 0
+      rightAnkle = 0
+    } else {
+      // Patient is lying down, generate ankle pressure
+      // Use seedValues to get deterministic but random-looking values
+      const seedIndex = i % seedValues.length
+      const leftSeed = seedValues[seedIndex]
+      const rightSeed = seedValues[(seedIndex + 500) % seedValues.length]
+      
+      leftAnkle = Math.round((250 + (leftSeed - 0.5) * 150) * 10) / 10
+      rightAnkle = Math.round((270 + (rightSeed - 0.5) * 150) * 10) / 10
     }
 
     samples.push({
       ts: timestamp.toISOString(),
-      heel: Math.round(Math.max(0, heel) * 10) / 10,
-      leftAnkle: Math.round(Math.max(0, leftAnkle) * 10) / 10,
-      rightAnkle: Math.round(Math.max(0, rightAnkle) * 10) / 10,
+      heel,
+      leftAnkle,
+      rightAnkle,
     })
   }
 

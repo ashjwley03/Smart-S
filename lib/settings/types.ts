@@ -65,7 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
     showRegionBoundaries: false,
     smoothingWindow: 0,
   },
-  device: { autoReconnect: true, sampleIntervalMs: 2000 },
+  device: { autoReconnect: true, sampleIntervalMs: 500 },
   calibration: { heelEnd: 0.18, ankleStart: 0.35, lateralGap: 0.12, swapLeftRight: false, zeroOffsetKPa: 0 },
   history: { retentionDays: 90, timezone: "UTC", exportFormat: "csv", uploadEnabled: false },
   accessibility: { textScale: 1, highContrast: false, haptics: false, theme: "system" },

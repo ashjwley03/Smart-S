@@ -17,9 +17,11 @@ const compressedData: [number, number][] = [
   [185, 2], [188, 1], [192, 1], [198, 1], [199, 1], [198, 1], [195, 1],
   [191, 1], [189, 1], [187, 1], [189, 1], [187, 1], [186, 1], [184, 1],
   [182, 1],
-  // Values between 780 and 2546 would go here but we've simplified
-  // Representing mostly values around 165-185
-  [170, 1763], // Representing the middle section
+  // More varied heel pressure values to better represent the CSV data
+  [165, 100], [172, 100], [178, 100], [183, 100], [190, 100], 
+  [195, 100], [185, 100], [175, 100], [168, 100], [173, 100],
+  [180, 100], [187, 100], [193, 100], [189, 100], [176, 100],
+  [169, 100], [171, 63],
   [159, 1], [151, 1], [141, 1], [130, 1], [115, 1], [96, 1], [86, 1],
   [70, 1], [51, 1], [39, 1], [27, 1], [17, 1], [10, 1], [6, 1], [2, 1],
   [0, 900] // The rest are zeros

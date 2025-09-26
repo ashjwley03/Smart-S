@@ -16,6 +16,7 @@ import type { PressureSample, HistoryQuery } from "@/lib/history/fetchHistory"
 import { applyRollingAverage } from "@/lib/history/rollingAvg"
 import { downsampleLTTB } from "@/lib/history/downsample"
 import { getThreshold } from "@/lib/history/thresholds"
+import { heelPressureThreshold } from "@/lib/history/heelPressureData"
 import { Badge } from "@/components/ui/badge"
 
 interface HistoryChartProps {
@@ -58,7 +59,7 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
       leftAnkle: sample.leftAnkle,
       rightAnkle: sample.rightAnkle,
       anyHigh:
-        sample.heel > getThreshold("heel") ||
+        sample.heel > heelPressureThreshold || // Using CSV-defined threshold for heel
         sample.leftAnkle > getThreshold("leftAnkle") ||
         sample.rightAnkle > getThreshold("rightAnkle"),
     }))
@@ -106,15 +107,19 @@ export function HistoryChart({ data, period, smoothing }: HistoryChartProps) {
     const leftAnkle = payload.find((p: any) => p.dataKey === "leftAnkle")?.value
     const rightAnkle = payload.find((p: any) => p.dataKey === "rightAnkle")?.value
 
+    // Determine patient position based on heel pressure
+    const patientPosition = heel > 0 ? "Standing" : "Lying down"
+    
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
         <p className="text-sm font-medium mb-2">{date.toLocaleString()}</p>
+        <p className="text-xs text-muted-foreground mb-2">Patient position: {patientPosition}</p>
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm text-muted-foreground">Heel:</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{heel} kPa</span>
-              {heel > getThreshold("heel") && (
+              {heel > heelPressureThreshold && (
                 <Badge variant="destructive" className="text-xs">
                   HIGH
                 </Badge>

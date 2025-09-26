@@ -354,8 +354,11 @@ export default function FootPressureMonitor() {
     rightAnkle: { value: 0, status: "No Data" },
   })
   const [patientPosition, setPatientPosition] = useState("Unknown")
-  // Start at index 800 to skip the initial zeros in the heelPressureData array
+  // Start at index 800 to skip the initial zeros and position at the varied section
   const [dataIndex, setDataIndex] = useState(800)
+  
+  // Step size for data cycling (larger value = faster cycling through data points)
+  const dataStep = 10
 
   useEffect(() => {
     if (!isConnected) {
@@ -394,8 +397,8 @@ export default function FootPressureMonitor() {
       const ankleThreshold = getAnkleThreshold(settings)
       
       setDataIndex((prevIndex) => {
-        // Loop through the heel pressure data
-        const newIndex = (prevIndex + 1) % heelPressureData.length
+        // Loop through the heel pressure data using our step size for faster cycling
+        const newIndex = (prevIndex + dataStep) % heelPressureData.length
         const heelValue = heelPressureData[newIndex].value
         const isPatientStanding = heelValue > 0
         
